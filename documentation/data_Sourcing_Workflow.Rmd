@@ -1,0 +1,78 @@
+---
+title: "ETH DST Harmonization Data Sourcing"
+author: "Alliance of Bioversity-CIAT"
+date: "2023-10-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### 1. Data
+
+Data sourcing activity refers to two major activities:
+
+1. Gathering field trial and other relevant data from several sources.
+
+2. Souring open access geospatial data & extracting these geospatial data based on the trial data and the area of interest (AOI).
+
+The field trial data will accessed from openly accessible EIAR dataverse and from different partners that collaborate in this project. The data will have attributes like source, admin locations including long & lat, crop type, varieties, yield and treatment information (N, P, K, S, ...).
+
+The geospatial data is acquired from openly accessible API's and local repositories. The data is currently stored in the CGLabs and will migrate to a new AWS infrastructure when ready. The data includes the following.
+
+##### 1. Rainfall (CHIRPS)
+##### 2. Relative Humidity (AgEra5)
+##### 3. Soil (EthioSIS (250m res) and Soil Grids (the 6 profiles and also 0 - 20cm depth))
+##### 4. Solar Radiation (AgEra5)
+##### 5. Temperature min and max (AgEra5)
+##### 6. Wind Speed (AgEra5)
+##### 7. Topography (SRTM)
+
+Besides a geospatial layers of crop mask, start of sowing date and growing length for each crop is also collected from EIAR. 
+
+### 2. Data organization
+
+The data is organized in different directories and sub-directories based on the type of data and the crop parameter in CGLabs.
+
+#### 2.1. ~/Eth_DST_Harmonization/data/national_Data
+
+Stores all the national field trial data and geospatial layers (covariates (soil, topography, climate), crop masks, sowing date and growing length). the specific location are:- 
+
+~/Eth_DST_Harmonization/data/national_Data/raw/field_Data - field trial data
+~/Eth_DST_Harmonization/data/national_Data/raw/geospatial/climate/rainfall/ - climate 
+~/Eth_DST_Harmonization/data/national_Data/raw/geospatial/soil/ - soil
+~/Eth_DST_Harmonization/data/national_Data/raw/geospatial/topography/ - topography
+~/Eth_DST_Harmonization/data/national_Data/raw/geospatial/crop_Mask/ - crop mask
+~/Eth_DST_Harmonization/data/national_Data/raw/geospatial/sowing_Date/ - sowing date
+~/Eth_DST_Harmonization/data/national_Data/raw/geospatial/growing_Length/ - growing length
+
+#### 2.2. ~/Eth_DST_Harmonization/data/data_Processing/ 
+
+This directory stores all the intermediate outputs that will be reprocessed to generate the final outputs for the crop model and data driven approaches for each crops.
+
+Example - ~/Eth_DST_Harmonization/data/data_Processing/maize/geospatial/ - contains all intermediate results (rds and geospatial layer files of climate, soil, topography) for maize both the data driven and crop model.
+
+#### 2.3. ~/Eth_DST_Harmonization/data/analysis_Ready/ 
+
+This directory stores all the final data that can be used directly for the crop model and the data driven (both calibration and prediction)
+
+Example - ~/Eth_DST_Harmonization/data/analysis_Ready/maize/ - contains all analysis ready data for maize.
+
+### 3. Scripts
+
+The scripts in the DST harmonization consists of two types. 
+
+1. Generic - these scripts are general purpose scripts that can be called and sourced by crop level scripts. These scripts are located in 
+~/Eth_DST_Harmonization/script/generic/data_Sourcing/
+~/Eth_DST_Harmonization/script/generic/lime/
+
+2. Crop level - these scripts source the generic scripts for generation of all the data required for the analytics of each crop. These scripts are located at the specific folder of each crop. 
+
+For example the maize data sourcing script is located in ~/Eth_DST_Harmonization/script/maize/data_sourcing/. When running the script, it will automatically generate the analysis ready data for the crop and put all the data in the ~/Eth_DST_Harmonization/data/analysis_Ready/maize directory.
+
+
+
+
+
+
