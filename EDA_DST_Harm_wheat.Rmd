@@ -1,0 +1,442 @@
+---
+title: "Exploratory Data Analysis - DST Harmonization Wheat Data"
+author: "Alliance of Bioversity Internation & CIAT"
+date: "2024-01-23"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+### 1. Load required packages
+```{r, message=FALSE}
+library(tidyverse)
+library(sf)
+library(terra)
+library(spData)
+library(ggspatial)
+library(klippy)
+library(rosm)
+library(prettymapr)
+library(geodata)
+library(BLA)
+library(Polychrome)
+library(plyr)
+```
+```{r klippy, echo = FALSE, include = TRUE}
+klippy::klippy(position = c('top', 'right'), color = 'darkred', tooltip_message = 'Click to copy', tooltip_success = 'Done')
+```
+
+### 2.Structure of the data 
+```{r}
+wheat <- read.csv("wheat_dst_team_shared_v2.csv", header = T, sep = ",", fileEncoding="latin1")
+```
+See the dimensions of the data
+```{r}
+dim(wheat)
+```
+View columns of the data
+```{r}
+colnames(wheat)
+```
+See the structure of the data
+```{r}
+str(wheat)
+```
+
+See some observations of the whole dataset
+```{r}
+head(wheat,3)
+```
+
+Let's check the number of NA values in each column
+```{r}
+wheat |>
+  summarise_all(~sum(is.na(.)))
+```
+From the NA values summary table we have only (16701 - 12621) values of planting and harvesting date observations
+
+### 3. Check spatial locations of observations
+```{r, message=FALSE}
+eth <- geodata::gadm(path = ".", "eth", level = 0)
+class(eth)
+```
+Identify points that lie outside of Ethiopia
+```{r, message=FALSE}
+wheat_pts <- terra::vect(wheat, geom = c('long', 'lat'), crs = ("epsg:4326"))
+plot(eth, main = "Spatial Distribution of Wheat points")
+plot(wheat_pts, col = 'lightgreen', cex = 0.7, add = T)
+```
+Select those points that lie outside of the boundary and flag the observations
+
+```{r}
+pts_relate <- terra::relate(eth, wheat_pts, "disjoint") |> which()
+flag1 <- dplyr::filter(wheat, unique_id %in% pts_relate)
+flag1
+```
+
+Let's add a comment column for the flagged data specifying the reason for flag.
+
+```{r}
+flag1$comment <- "geolocation error"
+flag1$description <- "Outside of the boundary of Ethiopia"
+flag1
+```
+
+Now let's filter out the data outside of the Ethiopian boundary
+```{r}
+wheat_filtered <- wheat |> dplyr::filter(!(unique_id %in% flag1$unique_id))
+dim(wheat_filtered)
+```
+### 4. Summarize data
+Now let's join the filtered data points by regional spatial data
+```{r}
+eth_reg <- geodata::gadm(path = ".", "eth", level = 1) |> st_as_sf()
+class(eth_reg)
+wheat_pts <- terra::vect(wheat_filtered, geom = c('long', 'lat'), crs = "epsg:4326") |> st_as_sf()
+dim(wheat_pts)
+pts_joined = st_join(eth_reg, wheat_pts)
+head(pts_joined,3)
+```
+
+Let's compare the observations that contained by each region
+```{r fig.width=10}
+pts_joined |> ggplot(aes(NAME_1))+
+  geom_bar(fill = "lightblue")+
+  xlab("region")+
+  ylab("observation")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 12))
+```
+
+View the summary of the numeric variables (i.e. n,p,k,grain_yield)
+```{r}
+for(i in 8:11){
+  message(colnames(wheat_filtered)[i])
+  print(summary(wheat_filtered[,i]))
+}
+```
+Let's check by source
+```{r}
+pts_source <- dplyr::count(as_tibble(wheat_filtered), source)
+print(pts_source[order(pts_source$n, decreasing = TRUE), ])
+```
+
+Unique treatments 
+```{r}
+length(unique(wheat_filtered$treatment))
+unique(wheat_filtered$treatment)
+```
+###5. Identify outliers in the dataset
+
+Lets create a combination of unique values of npk for each treatment with creating an interval for npk values  
+```{r}
+wheat_filtered <- wheat_filtered |> dplyr::mutate(n_rate2 = round_any(n_kgpha, 5), p_rate2 = round_any(p_kgpha, 10), k_rate2 = round_any(k_kgpha, 5))
+wheat_filtered$treatment2 <- paste(wheat_filtered$n_rate2, wheat_filtered$p_rate2, wheat_filtered$k_rate2, sep = "_")
+length(unique(wheat_filtered$treatment2))
+unique(wheat_filtered$treatment2)
+```
+
+Let's check the total number of points by each unique combination of npk 
+```{r}
+pts_treatment <- dplyr::count(as_tibble(wheat_filtered), treatment2)
+print(pts_treatment[order(pts_treatment$n, decreasing = TRUE), ])
+```
+
+Now let's flag those unique treatment combinations with less than 3 observations
+```{r}
+filt_trt <- pts_treatment |> dplyr::filter(n < 3)
+valid_set <- wheat_filtered |> dplyr::filter((treatment2 %in% filt_trt$treatment2))
+wheat_filtered <- wheat_filtered |> dplyr::filter(!(treatment2 %in% filt_trt$treatment2))
+dim(valid_set)
+dim(wheat_filtered)
+length(unique(wheat_filtered$treatment2))
+```
+The unique combination of treatments have reduced from 236 to 196. 40 unique treatments are tested only once or twice. Now let's check by treatment and source.
+```{r}
+pts_treatsrc = wheat_filtered |>
+  dplyr::group_by(source, treatment2) |>
+  dplyr::summarise(n = n())
+print(pts_treatsrc[order(pts_treatsrc$n, decreasing = T), ])
+```
+
+Lets flag those treatments with few observations
+```{r}
+flag2 <- valid_set
+flag2$comment <- "few observation as per treatment"
+flag2$description <- "these dataset can be used as a validation set"
+```
+
+summarize data collected in different year
+```{r  warning=FALSE, fig.width=10}
+wheat_filtered |> ggplot(aes(year))+
+  geom_bar(fill = "lightblue")+
+  xlab("year")+
+  ylab("observation")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 12))
+```
+
+See Treatments in every year
+```{r fig.width= 10, fig.height= 15}
+wheat_filtered |> dplyr::select(-c(pl_date_ec, hv_date_ec)) |> na.omit() |>
+  ggplot(aes(treatment2))+
+  geom_bar(fill = "lightblue")+
+  xlab("treatment")+
+  ylab("observation")+
+  ylim(0, 1000)+
+  facet_wrap(~year, ncol = 3)+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 6))
+```
+
+Now lets select those few number of observations (less than 20) by year
+```{r}
+summary_year <- wheat_filtered |>
+  dplyr::group_by(year) |>
+  dplyr::summarise(n = n())
+summary_year <- summary_year |> dplyr::filter(n < 20)
+summary_year_few <- wheat_filtered |> dplyr::filter(year %in% summary_year$year)
+print(summary_year[order(summary_year$n, decreasing = F), ])
+```
+
+Now lets plot the treatments
+```{r, fig.height = 5}
+summary_year_few |> ggplot(aes(year))+
+  geom_bar(fill = "lightblue")+
+  xlab("year")+
+  ylab("observation")+
+  facet_wrap(~treatment2, ncol = 4)+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8))
+```
+
+Now lets see the yield distribution of these treatments
+
+```{r fig.width= 8}
+summary_year_few |> 
+  ggplot(aes(n_rate2, grain_yield_kgpha, color = as.factor(year)))+
+  geom_point(size = 3)+
+  xlab("n_rate")+
+  ylab("yield")+
+  facet_wrap(~treatment2)+
+  theme_bw()
+  
+```
+
+```{r fig.width = 8}
+summary_year_few |> 
+  ggplot(aes(p_rate2, grain_yield_kgpha, color = as.factor(year)))+
+  geom_point(size = 3)+
+  xlab("p_rate")+
+  ylab("yield")+
+  facet_wrap(~treatment2)+
+  theme_bw()
+```
+
+```{r fig.width = 8}
+summary_year_few |> 
+  ggplot(aes(k_rate2, grain_yield_kgpha, color = as.factor(year)))+
+  geom_point(size = 3)+
+  xlab("k_rate")+
+  ylab("yield")+
+  facet_wrap(~treatment2)+
+  theme_bw()
+```
+
+```{r fig.width = 8}
+summary_year_few |> 
+  ggplot(aes(k_rate2, grain_yield_kgpha, color = as.factor(year)))+
+  geom_point(size = 3)+
+  xlab("k_rate")+
+  ylab("yield")+
+  facet_wrap(~treatment2)+
+  theme_bw()
+```
+Yield distribution by year
+```{r fig.width = 8}
+summary_year_few |> 
+  ggplot(aes(year, grain_yield_kgpha))+
+  geom_point(size = 3)+
+  xlab("year")+
+  ylab("yield")+
+  facet_wrap(~treatment2)+
+  theme_bw()
+```
+Yield distribution by source
+```{r fig.width = 8}
+summary_year_few |> 
+  ggplot(aes(source, grain_yield_kgpha, color = as.factor(year)))+
+  geom_point(size = 3)+
+  xlab("source")+
+  ylab("yield")+
+  facet_wrap(~treatment2)+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8))
+```
+
+Lets flag these few observations 
+```{r}
+flag3 <- summary_year_few
+flag3$comment <- "few observations"
+flag3$description <- "few observations in different years (less than 20)"
+```
+
+Now let's group the flagged data above by source
+```{r}
+flag3_srs <- flag3 |> dplyr::group_by(source) |>
+  dplyr::summarise(n = n())
+flag3_srs
+```
+Lets remove the few data above and see the distribution of data in the other years
+```{r}
+wheat_filtered <- wheat_filtered |> 
+  dplyr::filter(!(unique_id %in% summary_year_few$unique_id))
+dim(wheat_filtered)
+```
+
+Let's plot these data to see outliers (n ~ yield)
+```{r}
+wheat_filtered |> ggplot(aes(n_rate2, grain_yield_kgpha))+
+  geom_point()+
+  xlab("n_rate")+
+  ylab("yield")+
+  theme_bw()
+```
+
+Let's plot these data to see outliers (p ~ yield)
+```{r}
+wheat_filtered |> ggplot(aes(p_rate2, grain_yield_kgpha))+
+  geom_point()+
+  xlab("p_rate")+
+  ylab("yield")+
+  theme_bw()
+```
+
+lets plot these data to see outliers (k ~ yield)
+```{r}
+wheat_filtered |> ggplot(aes(k_rate2, grain_yield_kgpha))+
+  geom_point()+
+  xlab("k_rate")+
+  ylab("yield")+
+  geom_abline(intercept = 15000, color = 'red')+
+  theme_bw()
+```
+select the outliers, flag the data and add comments
+```{r}
+flag4 <- wheat_filtered |> filter(grain_yield_kgpha > 15000)
+flag4$comment <- "yield outliers"
+flag4$description <- "grain yield greater than 15K kg/ha"
+flag4
+```
+
+Let's see the flagged data by source
+```{r}
+flag4_srs <- flag4 |> dplyr::group_by(source, treatment2) |> dplyr::summarise(n = n())
+flag4_srs
+```
+
+Now lets remove the outliers from the data
+```{r}
+wheat_filtered <- wheat_filtered |> dplyr::filter(!(unique_id %in% flag4$unique_id))
+dim(wheat_filtered)
+```
+Besides lets flag the yield values below 300kg/ha
+```{r}
+flag5 <- wheat_filtered |> filter(grain_yield_kgpha < 300)
+flag5$comment <- "yield outliers"
+flag5$description <- "grain yield less than 300 kg/ha"
+dim(flag5)
+```
+```{r}
+flag5_srs <- flag5 |> dplyr::group_by(source, treatment2) |> dplyr::summarise(n = n())
+flag5_srs
+```
+
+Now lets remove the above outliers from the data 
+```{r}
+wheat_filtered <- wheat_filtered |> dplyr::filter(!(unique_id %in% flag5$unique_id))
+dim(wheat_filtered)
+```
+View the summary of the numeric variables for the filtered data (i.e. n,p,k,grain_yield)
+```{r}
+for(i in 8:11){
+  message(colnames(wheat_filtered)[i])
+  print(summary(wheat_filtered[,i]))
+}
+```
+Now lets plot the new filtered data and see whether the outliers are removed or not
+```{r}
+wheat_filtered |> ggplot(aes(n_rate2, grain_yield_kgpha))+
+  geom_point()+
+  xlab("n_rate")+
+  ylab("yield")+
+  theme_bw()
+```
+Now let's see the yield distribution by treatment by
+creating n_omission, p_omission, k omission trials
+n omission
+```{r}
+n_om <- wheat_filtered |> dplyr::filter(n_kgpha == 0 & p_kgpha != 0 & k_kgpha != 0)
+dim(n_om)
+```
+Let's see unique n ommision trials as per treatment
+```{r}
+unique(n_om$treatment2)
+```
+```{r fig.width= 8}
+n_om |>  ggplot(aes(y = grain_yield_kgpha))+
+  geom_boxplot(fill = "lightblue", position = "identity", outlier.colour = 'red')+
+  facet_wrap(~treatment2, ncol = 3)+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10))
+```
+Let's see unique n ommision trials as per year
+```{r}
+unique(n_om$year)
+```
+Identify n omission trial outliers by season
+```{r fig.height = 3}
+n_om |>  ggplot(aes(y = grain_yield_kgpha))+
+  geom_boxplot(fill = "lightblue", position = "identity", outlier.colour = 'red')+
+  facet_wrap(~year, ncol = 3)+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10))
+```
+Let's see unique n ommision trials as per source
+```{r}
+unique(n_om$source)
+```
+
+```{r fig.width= 8}
+n_om |>  ggplot(aes(y = grain_yield_kgpha))+
+  geom_boxplot(fill = "lightblue", position = "identity", outlier.colour = 'red')+
+  xlab("yield")+
+  facet_wrap(~source, ncol = 3)+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10))
+```
+
+Since the trials were done by different institutes at different season and spatial locations we have to identify the trials by source, treatment, season and spatial location to extract outliers.
+
+```{r fig.width = 8}
+ n_om |> 
+  ggplot(aes(x= as.factor(year), y = grain_yield_kgpha, fill = factor(source)))+
+  geom_boxplot(width=0.7, outlier.colour = 'red')+
+  xlab("year")+
+  facet_wrap(~treatment2, ncol = 3)+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 45, size = 7), legend.position = "bottom")+
+   guides(fill = guide_legend(nrow = 2))
+```
+One additional level to be done (i.e. spatial location of treatments to be identified)
+
+- p_ommision
+- n_ommision
+- k_omission
+- control
+
+
+
