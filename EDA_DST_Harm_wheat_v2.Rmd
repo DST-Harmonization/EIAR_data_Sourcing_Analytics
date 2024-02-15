@@ -1,0 +1,558 @@
+---
+title: "Exploratory Data Analysis - DST Harmonization Wheat Data"
+author: "Alliance of Bioversity Internation & CIAT"
+date: "2024-02-14"
+output: html_document
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### 1. Load required packages
+
+```{r, message=FALSE, warning=F}
+library(tidyverse)
+library(sf)
+library(terra)
+library(klippy)
+library(geodata)
+library(plyr)
+library(tmap)
+library(tmaptools)
+library(lme4)
+library(simr)
+```
+
+
+#### 2.Structure of the data 
+
+```{r}
+wheat <- read.csv("wheat_dst_team_shared_v2.csv", header = T, sep = ",", fileEncoding="latin1")
+```
+
+See the dimensions of the data
+```{r}
+dim(wheat)
+```
+
+View columns of the data
+```{r}
+colnames(wheat)
+```
+
+See the structure of the data
+```{r}
+str(wheat)
+```
+
+See some observations of the whole dataset
+```{r}
+hed_wheat <- head(wheat,3)
+rmarkdown::paged_table(hed_wheat, options=NULL) 
+```
+
+Let's check the number of NA values in each column
+```{r}
+wheat_sumr <- wheat |>
+  summarise_all(~sum(is.na(.)))
+rmarkdown::paged_table(wheat_sumr, options=NULL) 
+```
+
+From the NA values summary table we have only (16701 - 12621) values of planting and harvesting date observations
+
+#### 3. Data joining and creating combined columns
+
+```{r}
+eth_dist <- geodata::gadm(path = ".", "eth", level = 3) |> st_as_sf()
+wheat_pts <- terra::vect(wheat, geom = c('long', 'lat'), crs = "epsg:4326") |> st_as_sf()
+dim(wheat_pts)
+wheat_joined <- st_join(wheat_pts, eth_dist) 
+wheat_joined <- st_coordinates(wheat_joined) |> cbind(as.data.frame(wheat_joined))  |> dplyr::select(unique_id, X, Y, year, source, treatment, n_kgpha, p_kgpha, k_kgpha, grain_yield_kgpha, pl_date_ec, hv_date_ec, NAME_1, NAME_2, NAME_3)
+head(wheat_joined, 3)
+```
+
+Let's create a trial id by concatenating long, lat, year and source. Besides we round the treatment values and concatenate to create a unique treatment id.
+
+```{r}
+wheat_joined <- wheat_joined |> dplyr::mutate(NAME_1 = replace(NAME_1, NAME_1 == "Southern Nations, Nationalities", "SNNP"))|> dplyr::mutate(trial_id = paste(X, Y, year, source, sep = ",")) |> dplyr::mutate(n_rate2 = round_any(n_kgpha, 5), p_rate2 = round_any(p_kgpha, 2), k_rate2 = round_any(k_kgpha, 10)) |> dplyr::mutate(treatment_id = 
+paste(n_rate2, p_rate2, k_rate2, sep = "_")) |> dplyr::mutate(location = 
+paste(NAME_2, NAME_3, sep = "_"))
+dim(wheat_joined)
+```
+#### 4. Spatial locations of observations
+
+Check the observations that lies inside the wheat crop mask area
+
+```{r, message=FALSE}
+eth <- geodata::gadm(path = ".", "eth", level = 0) |> st_as_sf()
+class(eth)
+```
+
+Identify points that lie outside of Ethiopia
+```{r}
+wheat_joined2 <- wheat_joined |> terra::vect(geom = c('X', 'Y'), crs = "epsg:4326") |> st_as_sf() 
+ggplot() +
+  geom_sf(data = eth,
+          fill = NA,
+          color = "black") +
+  geom_sf(data = wheat_joined2,
+          aes(color = NAME_1, size = grain_yield_kgpha),
+          na.rm = T) +
+  coord_sf() +
+  theme_bw()
+```
+
+Select those points that lie outside of the boundary and flag the observations
+```{r}
+flag1 <- wheat_joined |> dplyr::filter(is.na(NAME_1) | is.na(NAME_2) | is.na(NAME_3))
+rmarkdown::paged_table(flag1, options=NULL)
+```
+
+Let's add a comment column for the flagged data specifying the reason for flag.
+
+```{r}
+flag1$comment <- "geolocation error"
+flag1$description <- "Outside of the boundary of Ethiopia"
+```
+
+No of flagged data by treatment id
+```{r}
+flag1 |> dplyr::group_by(source, treatment_id) |> dplyr::summarise(n = n()) |> dplyr::arrange(desc(n))
+```
+
+Let's remove the observations outside of Ethiopia
+```{r}
+wheat_filtered <- wheat_joined |> dplyr::filter(!(unique_id %in% flag1$unique_id))
+dim(wheat_filtered)
+```
+
+#### 5. Summarizing data
+
+Boxplot for all data
+```{r}
+wheat_filtered |> ggplot(aes(x = source, y = grain_yield_kgpha, fill = source))+
+  geom_boxplot()+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8), legend.position = 'none')
+```
+
+Drop observations with yield values > 15ton/ha
+```{r}
+wheat_filtered <- wheat_filtered |> dplyr::filter(grain_yield_kgpha <= 15000)
+```
+
+View the summary of the numeric variables (i.e. n,p,k,grain_yield)
+```{r}
+for(i in c(10, 17:19)){
+  message(colnames(wheat_filtered)[i])
+  print(summary(wheat_filtered[,i]))
+}
+```
+Distribution of treatments and yield
+```{r}
+par(mfrow=c(2,2))
+hist(wheat_filtered$grain_yield_kgpha, xlab = "yield", main = "")
+hist(wheat_filtered$n_rate2, xlab = "N rate", main = "")
+hist(wheat_filtered$p_rate2, xlab = "P rate", main = "")
+hist(wheat_filtered$k_rate2, xlab = "K rate", main = "")
+```
+
+Summarize data collected in different year
+```{r  warning=FALSE, fig.width=10}
+wheat_filtered |> ggplot(aes(year))+
+  geom_bar(fill = "lightblue")+
+  xlab("year")+
+  ylab("observation")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 12))
+```
+
+Let's check the number of observations by source
+```{r}
+obs_src <- wheat_filtered |> dplyr::group_by(source) |> dplyr::summarise(n = n()) |> 
+  dplyr::arrange(desc(n))
+rmarkdown::paged_table(obs_src, options = NULL) 
+```
+
+Let's check the number of observations by treatment
+```{r}
+obs_trt <- wheat_filtered |> dplyr::group_by(treatment_id) |> dplyr::summarise(n = n()) |> dplyr::arrange(desc(n))
+rmarkdown::paged_table(obs_trt, options=NULL) 
+```
+
+Let's check the number of observations by treatment and source
+```{r}
+obs_trt_src <- wheat_filtered |> dplyr::group_by(source, treatment_id) |> dplyr::summarize(n = n()) |>
+  dplyr::arrange(desc(n))
+rmarkdown::paged_table(obs_trt_src, options=NULL) 
+```
+
+Let's check the number of observations by source & trial id
+```{r}
+obs_src_trid <- wheat_filtered |> dplyr::group_by(source, trial_id) |> dplyr::summarize(n = n()) |> dplyr::arrange(desc(n))
+rmarkdown::paged_table(obs_src_trid, options=NULL) 
+```
+
+Trials with only one data points (lat, long, year and source)
+```{r fig.height= 7}
+few_observs <- wheat_filtered |> dplyr::group_by(trial_id) |> dplyr::summarise(n = n()) |> dplyr::filter(n == 1)
+wheat_few_observs <- wheat_filtered |> dplyr::filter((trial_id %in% few_observs$trial_id))
+wheat_few_observs |> ggplot(aes(x = source, y = grain_yield_kgpha, fill = source))+
+  geom_point()+
+  facet_wrap(~year)+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 8), legend.position = 'none', strip.text.x = element_text(size = 12))
+```
+
+```{r}
+dim(few_observs)
+dim(wheat_filtered)
+```
+
+Finding very close points to form a trial_id 
+```{r}
+wheat_filtered <- wheat_filtered |> dplyr::mutate(long2 = round(X, digits = 2), lat2 = round(Y , digits = 2), trial_id2 = paste(long2, lat2, year, source, sep = "_"))  
+```
+
+Dimension few observations when long lat rounded to 2 digits
+```{r}
+few_observs2 <- wheat_filtered |> dplyr::group_by(trial_id2) |> dplyr::summarise(n = n()) |> dplyr::filter(n == 1)
+dim(few_observs2)
+```
+
+##### Dimension of number of trials with 1 data points. While merged by rounding lon & lat to 3 digits 1 data point issue will be reduced from 1213 - 1175 unique trials. But if we round to 2 digits it again reduces from 1213 to 687 unique trials. 
+
+No of observations per region 
+```{r}
+wheat_filtered |> dplyr::group_by(NAME_1) |> dplyr::summarize(n = n()) |>
+  dplyr::arrange(desc(n))
+```
+
+##### Benishangul has only 5 points and may not be representative?? We suggest to generate recommendation as per agroecology level
+
+No of observations by region and source
+```{r}
+obs_src_reg <- wheat_filtered |> dplyr::group_by(source, NAME_1) |> dplyr::summarize(n = n()) |>
+  dplyr::arrange(desc(n))
+rmarkdown::paged_table(obs_src_reg, options=NULL) 
+```
+
+No of observations by region and treatment
+```{r}
+obs_reg_trt <- wheat_filtered |> dplyr::group_by(treatment_id, NAME_1) |> dplyr::summarize(n = n()) |>
+  dplyr::arrange(treatment_id)
+rmarkdown::paged_table(obs_reg_trt, options=NULL) 
+```
+
+Yield ranges per region
+```{r, fig.width = 8}
+wheat_filtered |>
+ggplot(aes(y = grain_yield_kgpha, fill = NAME_1))+
+  geom_boxplot(width = 0.2, outlier.colour = 'red')+
+  theme_bw()+
+  theme(axis.text.x = element_blank(), legend.position = "right")+
+   guides(fill = guide_legend(nrow = 4))
+```
+
+Now let's see the average yield by zone
+```{r}
+avg_yld_zone <- wheat_filtered |> dplyr::group_by(NAME_1, NAME_2) |> dplyr::summarize(mean_yield = mean(grain_yield_kgpha)) |> dplyr::arrange(desc(mean_yield))
+rmarkdown::paged_table(avg_yld_zone, options=NULL) 
+```
+
+Yield difference by zone
+```{r}
+wheat_filtered |> 
+ggplot(aes(y = grain_yield_kgpha, fill = NAME_2))+
+  geom_boxplot(width = 0.2, outlier.colour = 'red')+
+  facet_wrap(~NAME_1)+
+  theme_bw()+
+  theme(axis.text.x = element_blank(), legend.position = "none")+
+   guides(fill = guide_legend(nrow = 4))
+```
+
+Now let's plot the average yield by district
+```{r}
+avg_yld_dist <- wheat_filtered |> dplyr::group_by(location) |> dplyr::summarize(mean_yield = mean(grain_yield_kgpha)) |> dplyr::arrange(desc(mean_yield))
+rmarkdown::paged_table(avg_yld_dist, options=NULL) 
+```
+
+Few Observations by year
+```{r}
+obs_few_year <- wheat_filtered |> dplyr::group_by(year) |> dplyr::summarise(n = n()) |> dplyr::arrange(n)
+rmarkdown::paged_table(obs_few_year, options=NULL) 
+```
+
+Few observations above by source
+Observations by year
+```{r}
+few_year <- wheat_filtered |> dplyr::filter(year %in% c(1992, 1990, 1991, 2008, 2009, 2010)) |> 
+  dplyr::group_by(year, trial_id2) |> dplyr::summarise(n = n()) |> dplyr::arrange(n)
+few_year
+```
+
+Few observations by year, source and zone
+```{r}
+wheat_filtered |> dplyr::filter(year %in% c(1992, 1990, 1991, 2008, 2009, 2010)) |>
+  ggplot(aes(x = treatment_id, y = grain_yield_kgpha, color = source))+
+  geom_point(size = 2)+
+  facet_grid(NAME_2 ~ year)+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 6))
+```
+
+
+Let's check the distribution of yield by district. 
+```{r}
+# Set tmap to view mode
+eth_reg <- geodata::gadm(path = ".", country = "Eth", level = 1) |> st_as_sf()
+wheat_filtered2 <- wheat_filtered |> 
+  terra::vect(geom = c('X', 'Y'), crs = 'epsg:4326') |> st_as_sf()
+tmap_mode("view")
+tm_shape(eth)+
+  tm_borders(col = "black") +
+tm_shape(eth_reg) +
+  tm_borders(col = "gray")+
+tm_shape(wheat_filtered2)+
+  tm_bubbles(col = "grain_yield_kgpha",
+          title.col="Grain Yield (kg/ha)", 
+          popup.vars=c("Zone"="NAME_2","DIstrict"="NAME_3",
+                       "treatment"="treatment_id",
+                       "Grain Yield"="grain_yield_kgpha", 
+                       "Trial ID"="trial_id"),
+          popup.format=list(grain_yield_kgpha=list(digits=2))) 
+```
+
+From the above map there is no spatial pattern of grain yield.
+
+##### 6. Outliers
+
+Even though the grain yield more than 7ton/ha is considered as an outlier let's drop all observations with yield values above 15ton/ha and look the distribution of the data.
+```{r}
+wheat_filtered <- wheat_filtered |> dplyr::filter(grain_yield_kgpha <= 15000) 
+wheat_filtered |> 
+  ggplot(aes(x = source, y = grain_yield_kgpha, fill = source))+
+  geom_boxplot()+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8), legend.position = 'none')
+```
+
+Let's check the above dominant outliers between 7.5ton/ha and 15ton/ha to investigate whether these are outliers or not using location, year and source (trial id)
+
+```{r}
+unq_tr_id <- wheat_filtered |> dplyr::filter(grain_yield_kgpha >= 7500 & grain_yield_kgpha <= 15000)
+unq_tr_id <- unique(unq_tr_id$trial_id2)
+unq_tr_id2 <- wheat_filtered |> dplyr::filter(grain_yield_kgpha <= 15000 & source %in% c("ICRISAT_ETH_Africa Rising", "ATA_Balanced_Fertilizer_Trial", "SG 2000") & year %in% c(2014, 2015, 2016) & trial_id2 %in% unq_tr_id)
+
+ unq_tr_id2 |> 
+  ggplot(aes(x = trial_id2, y = grain_yield_kgpha, fill = source))+
+  geom_boxplot()+
+  facet_wrap(~year, scales = "free")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 8), legend.position = 'none')
+```
+
+Nutrient use for the above yield data
+```{r}
+col_high_yld <- wheat_filtered |> dplyr::mutate(cy = ifelse(trial_id %in% unq_tr_id2$trial_id, 'green', 'red'))
+col_high_yld |> 
+  ggplot(aes(x = n_rate2, y = grain_yield_kgpha, color = cy))+
+  geom_point()+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 8), legend.position = 'none')
+```
+
+Nutrient use for the above yield data
+```{r}
+col_high_yld <- wheat_filtered |> dplyr::mutate(cy = ifelse( trial_id %in% unq_tr_id2$trial_id, 'green', 'red'))
+col_high_yld |> 
+  ggplot(aes(x = p_rate2, y = grain_yield_kgpha, color = cy))+
+  geom_point()+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 8), legend.position = 'none')
+```
+
+For the two trials with lower yield above, we checked the treatment by yield.  
+```{r}
+unq_tr_id2 |> dplyr::filter(grain_yield_kgpha <= 2500 & year %in% c(2014, 2015)) |> 
+  ggplot(aes(x = treatment_id, y = grain_yield_kgpha))+
+  geom_point(color = "blue")+
+  facet_wrap(~trial_id2)+
+  theme_bw()
+```
+
+Let's see control yield distribution by region
+```{r}
+wheat_filtered |> dplyr::filter(treatment_id == "0_0_0") |>
+ggplot(aes(y = grain_yield_kgpha, x = year, fill = as.factor(year)))+
+  geom_boxplot()+
+  ylab("yield")+
+  facet_wrap(~NAME_1)+
+  theme_bw()+
+  theme(axis.text.x = element_blank(), axis.title.x =  element_blank())
+```
+
+```{r, fig.height=10, fig.width=13}
+wheat_filtered |> dplyr::filter(treatment_id == "0_0_0" & year %in% c(2020,2021) & NAME_1 %in% c('Amhara', 'Oromia', 'SNNP')) |>
+ggplot(aes(y = grain_yield_kgpha, x = NAME_2, fill = as.factor(year)))+
+  geom_boxplot()+
+  ylab("yield")+
+  facet_wrap(~source, scale = 'free_x')+
+  theme_bw()+
+  xlab("Zone")+
+  theme(axis.text.x = element_text(size = 14, angle = 15, hjust = 1), strip.text.x = element_text(size = 10))
+```
+
+First we select all trials with control, then we subset where control yield >=3.5ton/ha, we took all treatments of those trials and check the yield distribution. A box plot for those high control trials
+
+<!-- The assumption is, the yield for other treatments must be bigger than the control yield.  -->
+```{r, fig.height=10, fig.width=13}
+ctrl_high_yld <- wheat_filtered |> dplyr::filter(treatment_id == "0_0_0"  & grain_yield_kgpha >= 3500 & grain_yield_kgpha <= 15000) 
+wheat_filtered |> dplyr::filter(trial_id %in% unique(ctrl_high_yld$trial_id)) |>
+ggplot(aes(y = grain_yield_kgpha, x = NAME_2, fill = as.factor(year)))+
+  geom_boxplot()+
+  geom_abline(slope = 0, intercept = 3500)+
+  ylab("yield")+
+  facet_wrap(~source, scale = 'free_x')+
+  theme_bw()+
+  xlab("Zone")+
+  theme(axis.text.x = element_text(size = 14, angle = 15, hjust = 1), strip.text.x = element_text(size = 14))
+```
+
+#### 7. Yield Effect
+
+Yield effect (from Meklit) - there are different values of the high NPK yield values.
+```{r, warning=FALSE}
+options(dplyr.summarise.inform = FALSE)
+unique_tr_id <- unique(wheat_filtered$trial_id2)
+yield_diff_mean <- data.frame()
+for(i in 1:length(unique_tr_id)){
+  unique_tr_yld <- wheat_filtered |> dplyr::filter(trial_id2 ==  unique_tr_id[i])
+  max_n <- max(unique_tr_yld$n_rate2)
+  max_p <- max(unique_tr_yld$p_rate2)
+  max_k <- max(unique_tr_yld$k_rate2)
+  unique_tr_yld2 <- unique_tr_yld |> dplyr::filter(n_rate2 == max_n &  p_rate2 == max_p & k_rate2 == max_k)
+  if(nrow(unique_tr_yld2) == 0){
+      unique_tr_yld2 <- unique_tr_yld |> dplyr::filter(n_rate2 == max_n &  p_rate2 == max_p)
+  } 
+  if(nrow(unique_tr_yld2) == 0){
+      unique_tr_yld2 <- unique_tr_yld |> dplyr::filter(n_rate2 == max_n)
+  }
+  if(nrow(unique_tr_yld2) > 1){
+      ref_yld <- median(unique_tr_yld2$grain_yield_kgpha)
+  }else{
+      ref_yld <- unique_tr_yld2$grain_yield_kgpha
+  }
+unique_tr_yld <- unique_tr_yld |> dplyr::mutate(yield_diff = ref_yld - grain_yield_kgpha)
+yield_diff_mean <- rbind(yield_diff_mean, unique_tr_yld)
+}
+saveRDS(yield_diff_mean, "yield_diff.rds")
+```
+
+Scatter plot of the yield difference
+```{r}
+yield_diff_mean <- yield_diff_mean |> dplyr::mutate(ref_trt = ifelse(yield_diff == 0, T, F))
+ref_yld_data <- yield_diff_mean |> dplyr::filter(yield_diff == 0) |> dplyr::select(trial_id2, yield_diff, treatment_id, grain_yield_kgpha)
+other_yld_data <- yield_diff_mean |> dplyr::filter(yield_diff != 0) |> dplyr::select(trial_id2, yield_diff, treatment_id, grain_yield_kgpha)
+all_diff_data <- ref_yld_data |> dplyr::inner_join(other_yld_data, by = "trial_id2")
+
+all_diff_data  |> ggplot(aes(y = grain_yield_kgpha.x, x = grain_yield_kgpha.y))+
+  geom_point()+
+  ylab("reference yield")+
+  xlab("other treatements yield")+
+  geom_abline(intercept = 0, slope = 1, color = 'blue')+
+  xlim(0, 10000)+
+  ylim(0, 10000)+
+  theme_bw()
+  #facet_wrap(~year)
+```
+
+
+#### 8. Linear mixed effects model
+
+```{r}
+#create variables to deal with scale issues:
+wheat_filtered$year <- as.factor(wheat_filtered$year)
+wheat_filtered$source <- as.factor(wheat_filtered$source)
+wheat_filtered$location <- as.factor(wheat_filtered$location)
+wheat_filtered$trial_id2 <- as.factor(wheat_filtered$trial_id2)
+wheat_filtered$NAME_2 <- as.factor(wheat_filtered$NAME_2)
+
+wheat_filtered$N100 <- wheat_filtered$n_rate2/100
+wheat_filtered$P100 <- wheat_filtered$p_rate2/100
+wheat_filtered$K100 <- wheat_filtered$k_rate2/100
+fita <- lmer(sqrt(grain_yield_kgpha) ~ n_rate2 + p_rate2 + k_rate2 + year + (1|trial_id2), data= wheat_filtered)
+
+plot(fita)
+fitb <- lmer(sqrt(grain_yield_kgpha) ~ n_rate2 + p_rate2 + k_rate2 + year + (1|trial_id2) + source, data = wheat_filtered)
+anova(fita, fitb)
+
+fitc <- lmer(sqrt(grain_yield_kgpha) ~ n_rate2 + p_rate2 + k_rate2 + year + NAME_2 + (1|trial_id2) + source, data = wheat_filtered)
+anova(fitb, fitc)
+
+fitd <- lmer(sqrt(grain_yield_kgpha) ~ n_rate2 + p_rate2 + k_rate2 + (1|year) + NAME_2 + (1|trial_id2) + source, data = wheat_filtered)
+anova(fitc, fitd)
+
+fite <- update(fitc, . ~ . + N100:P100 + N100:K100 + P100:K100 + N100:P100:K100)
+anova(fitc, fite)
+
+fitf <- update(fite, . ~ . +(0 + N100|trial_id2) +(0 + P100|trial_id2) +(0 + K100|trial_id2))
+anova(fite, fitf)
+#r.squaredGLMM(fitf) 
+plot(fitf)
+summary(fitf)
+wheat_filtered$blup <- predict(fitf, wheat_filtered)**2
+```
+
+Replace the grain yield by BLUP
+```{r, warning=FALSE}
+options(dplyr.summarise.inform = FALSE)
+unique_tr_id <- unique(wheat_filtered$trial_id2)
+yield_diff_mean <- data.frame()
+for(i in 1:length(unique_tr_id)){
+  unique_tr_yld <- wheat_filtered |> dplyr::filter(trial_id2 ==  unique_tr_id[i])
+  max_n <- max(unique_tr_yld$n_rate2)
+  max_p <- max(unique_tr_yld$p_rate2)
+  max_k <- max(unique_tr_yld$k_rate2)
+  unique_tr_yld2 <- unique_tr_yld |> dplyr::filter(n_rate2 == max_n &  p_rate2 == max_p & k_rate2 == max_k)
+  if(nrow(unique_tr_yld2) == 0){
+      unique_tr_yld2 <- unique_tr_yld |> dplyr::filter(n_rate2 == max_n &  p_rate2 == max_p)
+  } 
+  if(nrow(unique_tr_yld2) == 0){
+      unique_tr_yld2 <- unique_tr_yld |> dplyr::filter(n_rate2 == max_n)
+  }
+  if(nrow(unique_tr_yld2) > 1){
+      ref_yld <- median(unique_tr_yld2$blup)
+  }else{
+      ref_yld <- unique_tr_yld2$blup
+  }
+unique_tr_yld <- unique_tr_yld |> dplyr::mutate(yield_diff = ref_yld - blup)
+yield_diff_mean <- rbind(yield_diff_mean, unique_tr_yld)
+}
+saveRDS(yield_diff_mean, "yield_diff_blup.rds")
+```
+
+Scatter plot of the yield difference with BLUPS
+```{r}
+yield_diff_mean <- yield_diff_mean |> dplyr::mutate(ref_trt = ifelse(yield_diff == 0, T, F))
+ref_yld_data <- yield_diff_mean |> dplyr::filter(yield_diff == 0) |> dplyr::select(trial_id2, yield_diff, treatment_id, blup)
+other_yld_data <- yield_diff_mean |> dplyr::filter(yield_diff != 0) |> dplyr::select(trial_id2, yield_diff, treatment_id, blup)
+all_diff_data <- ref_yld_data |> dplyr::inner_join(other_yld_data, by = "trial_id2")
+
+all_diff_data  |> ggplot(aes(y = blup.x, x = blup.y))+
+  geom_point()+
+  ylab("reference yield")+
+  xlab("other treatements yield")+
+  geom_abline(intercept = 0, slope = 1, color = 'blue')+
+  xlim(0, 10000)+
+  ylim(0, 10000)+
+  theme_bw()
+  #facet_wrap(~year)
+```
+
+
+
+
