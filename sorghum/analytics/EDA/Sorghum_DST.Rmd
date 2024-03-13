@@ -1,0 +1,820 @@
+---
+title: "Sorghum dst"
+output: html_document
+date: "2024-03-13"
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r }
+
+library(tidyverse)
+library(tidyverse)
+library(skimr)
+library(gtsummary)
+library(terra)
+library(plotly)
+library(FactoMineR)
+library(ggmap)
+library(knitr)
+library(ggspatial)
+library(leaflet)
+library(leaflet.extras)
+library(ggplot2)
+library(readr)
+library(sf)
+library(dplyr)
+library(plyr)
+library(rmarkdown)
+
+library(sp)
+library(lubridate)
+library(inspectdf)
+library(sf)
+library(geodata)
+library(lme4)
+library(Matrix)
+```
+
+
+```{r }
+data <- read.csv("~/shared-data/Data/Sorghum/fieldData/sorghum_dst_data_v1.csv")
+head(data)
+```
+
+
+```{r}
+dim(data)
+```
+
+
+```{r data}
+colnames(data)
+```
+
+
+```{r}
+data |> summarise_all(~sum(is.na(.)))
+```
+
+
+```{r}
+
+data <- data %>% mutate(trail_id = paste(Lat, Long,Year, sep="_"))
+data <- data %>% mutate(treatment_id = paste(round_any(N_amount, 5), round_any(P_amount , 2),round_any(K_amount, 5), sep="_"))
+unique(data$treatment_id)
+```
+
+
+```{r}
+eth <- geodata::gadm(path = ".", "eth", level = 2)
+data_pts <- terra::vect(data, geom = c('Long', 'Lat'), crs = ("epsg:4326"))
+```
+
+
+```{r}
+eth_reg <- geodata::gadm(path = ".", "eth", level = 3) |> st_as_sf()
+class(eth_reg)
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+sorghum_pts <- terra::vect(data, geom = c('Long', 'Lat'), crs = "epsg:4326") |> st_as_sf()
+dim(sorghum_pts)
+pts_joined = st_join(eth_reg, sorghum_pts)
+```
+
+
+```{r}
+
+
+
+```
+
+
+
+
+
+```{r}
+data <- unique(data)
+dim(data)
+
+```
+
+
+```{r}
+
+location<-pts_joined[,c("Id","NAME_1","NAME_2","NAME_3")]
+location$Location<- paste(location$NAME_2,"_",location$NAME_3)
+data<- merge(data,location,by="Id")
+
+```
+
+
+
+
+```{r}
+data_by_trail <- as.data.frame(table(data$trail_id))
+paged_table(data_by_trail[order(data_by_trail$Freq , decreasing = FALSE), ])
+
+
+```
+
+
+```{r}
+table(data_by_trail$Freq)
+```
+
+
+```{r}
+data_by_year <- as.data.frame(table(data$Year))
+paged_table(data_by_year[order(data_by_year$Freq , decreasing = FALSE), ])
+```
+
+
+```{r}
+table(data_by_year$Freq)
+```
+
+
+```{r}
+ggplot(data_by_year, aes(x=Var1, y=Freq)) +
+  geom_bar(stat="identity")+theme_minimal()+
+  theme_bw()+
+  xlab("Year")+
+  ylab("count")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 12))
+```
+
+
+```{r}
+data_by_location <- as.data.frame(table(data$Location))
+paged_table(data_by_location[order(data_by_location$Freq , decreasing = FALSE), ])
+```
+
+
+```{r}
+table(data_by_location$Freq)
+```
+
+
+```{r}
+ggplot(data_by_location, aes(x=Var1, y=Freq)) +
+  geom_bar(stat="identity")+theme_minimal()+
+  theme_bw()+
+  xlab("Location")+
+  ylab("count")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 12))
+```
+
+
+```{r}
+data_by_treatment <- as.data.frame(table(data$treatment_id))
+paged_table(data_by_treatment[order(data_by_treatment$Freq , decreasing = FALSE), ])
+```
+
+
+```{r}
+table(data_by_treatment$Freq)
+```
+
+
+```{r}
+data_by_yield <- as.data.frame(table(data$Grain_yield))
+
+data_by_yield2 <-data_by_yield %>% filter(Freq >20)
+
+df2 <- filter(data, Grain_yield %in% data_by_yield2$Var1)
+
+paged_table(df2[order(df2$Grain_yield , decreasing = TRUE), ])
+```
+
+
+```{r}
+data <- data |> dplyr::mutate(n_round = round_any(N_amount, 5), p_round = round_any(P_amount, 2), k_round = round_any(K_amount, 5))
+
+```
+
+
+```{r}
+length(unique(data$n_round))
+```
+
+
+```{r}
+table(data$p_round)
+```
+
+
+```{r}
+table(data$k_round)
+```
+
+
+```{r}
+
+
+
+data_by_datasource <- as.data.frame(table(data$Data.source))
+paged_table(data_by_datasource[order(data_by_datasource$Freq , decreasing = FALSE), ])
+```
+
+
+```{r}
+data_by_trail <- as.data.frame(table(data$trail_id))
+table(data_by_trail$Freq)
+```
+
+
+```{r}
+
+```
+```{r}
+data_by_treatment <- as.data.frame(table(data$treatment_id))
+table(data_by_treatment$Freq)
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+data_by_source <- as.data.frame(table(data$Data.source))
+table(data_by_source$Freq)
+```
+
+
+```{r}
+ggplot(data_by_source, aes(x=Var1, y=Freq)) +
+  geom_bar(stat="identity")+theme_minimal()+
+  theme_bw()+
+  xlab("source")+
+  ylab("count")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 12))
+```
+
+
+```{r}
+data_control <-data %>% filter(treatment_id == "0_0_0")
+
+ggplot(data=data_control, mapping=aes(x=NAME_3, y=Grain_yield))+geom_boxplot()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 12))
+```
+
+
+```{r}
+ggplot(data=data_control, mapping=aes(x=Data.source, y=Grain_yield))+geom_boxplot()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 12))
+```
+
+
+
+```{r}
+eth <- geodata::gadm(path = ".", "eth", level = 0)
+eth_out <- geodata::gadm(path = ".", "eth", level = 0) |> st_as_sf()
+sor_coord <- terra::vect(data, geom = c('Long', 'Lat'), crs = ("epsg:4326"))
+```
+
+
+```{r}
+plot(eth, main = "Spatial Distribution of Sorghum points")
+plot(sorghum_pts, col = 'lightgreen', cex = 0.7, add = T)
+```
+
+
+
+```{r}
+sor_coord_sf <- st_as_sf(sor_coord)
+
+outliers <- sor_coord_sf[!st_within(sor_coord_sf, eth_out, sparse = FALSE), ]
+inside_ethiopia <- st_within(sor_coord_sf, eth_out, sparse = FALSE)
+flag1 <- sor_coord_sf[!inside_ethiopia, ]
+flag1
+```
+
+
+```{r}
+growing_areas <- st_read("~/shared-data/Data/Sorghum/geoSpatial/Sorghum_growing_areas.shp")
+plot(growing_areas , col='gray')
+plot(data_pts, col = 'lightgreen', cex = 0.7, add = T)
+growing_areas <- st_make_valid(growing_areas)
+```
+
+
+```{r}
+if (st_crs(sor_coord_sf) != st_crs(growing_areas)) {
+  sor_coord_sf <- st_transform(sor_coord_sf, st_crs(growing_areas))
+}
+trials_within_sorghum <- st_join(sor_coord_sf, growing_areas, join = st_within)
+trials_outside_sorghum <- trials_within_sorghum[is.na(trials_within_sorghum$COUNTRY),]
+
+flage2 <- trials_outside_sorghum %>% 
+  select(Id,Location , Data.source, Year, variety, Planting.date, Harvesting.date,Treat_Label.1,N_amount, P_amount,K_amount,Grain_yield,trail_id,treatment_id, Location)
+dim(flage2)
+```
+
+
+
+```{r}
+detect_outliers <- function(data, location_column, value_column) {
+  result <- data.frame(location = character(0), yield = numeric(0)) # Initialize an empty data frame
+  locations <- unique(data[[location_column]])
+  
+  for (loc in locations) {
+    subset_data <- data[data[[location_column]] == loc, ]
+    Q1 <- quantile(subset_data[[value_column]], 0.25)
+    Q3 <- quantile(subset_data[[value_column]], 0.75)
+    IQR <- Q3 - Q1
+    lower_bound <- Q1 - 1.5 * IQR
+    upper_bound <- Q3 + 1.5 * IQR
+    
+    outliers <- subset_data[subset_data[[value_column]] < lower_bound | subset_data[[value_column]] > upper_bound, ]
+    if(nrow(outliers) > 0) {
+      outliers$location <- loc
+      result <- rbind(result, outliers)
+    }
+  }
+  
+  return(result)
+}
+```
+
+
+```{r}
+outliers_byTrail_id <- detect_outliers(data, "trail_id", "Grain_yield")
+paged_table(outliers_byTrail_id[order(outliers_byTrail_id$Grain_yield , decreasing = TRUE), ])
+```
+
+
+```{r}
+outliers_byTreatment <- detect_outliers(data, "treatment_id", "Grain_yield")
+paged_table(outliers_byTreatment[order(outliers_byTreatment$Grain_yield , decreasing = TRUE), ])
+```
+
+
+```{r}
+outliers_byLocation <- detect_outliers(data, "Location", "Grain_yield")
+paged_table(outliers_byLocation[order(outliers_byLocation$Grain_yield , decreasing = TRUE), ])
+```
+
+
+```{r}
+outliers_byvariety <- detect_outliers(data, "variety", "Grain_yield")
+paged_table(outliers_byvariety[order(outliers_byvariety$Grain_yield , decreasing = TRUE), ])
+```
+
+
+```{r}
+outliers_bySource <- detect_outliers(data, "Data.source", "Grain_yield")
+paged_table(outliers_bySource[order(outliers_bySource$Grain_yield , decreasing = TRUE), ])
+```
+
+
+```{r}
+outliers_byYield <-data %>% filter(Grain_yield > 7000)
+```
+
+
+```{r}
+ggplot() +
+  geom_point(data = data, aes(x = trail_id, y = Grain_yield, color = "Whole Data")) +
+  geom_point(data = outliers_byTrail_id, aes(x = trail_id, y = Grain_yield, color = "Outliers")) +
+  #facet_wrap(~NAME_2, scales = "free") +
+  #facet_grid(. ~ NAME_3)+
+  labs(title = "Whole Data vs Outliers",
+       x = "trail_id",
+       y = "Yield",
+       color = "Data") +
+  scale_color_manual(values = c("Whole Data" = "blue", "Outliers" = "red")) +
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 12))
+```
+
+
+```{r}
+ggplot() +
+  geom_point(data = data, aes(y = trail_id, x = Grain_yield, color = "Whole Data")) +
+  geom_point(data = outliers_byYield, aes(y = trail_id, x = Grain_yield, color = "Outliers")) +
+  #facet_wrap(~NAME_2, scales = "free") +
+  #facet_grid(. ~ NAME_3)+
+  labs(title = "Whole Data vs Outliers",
+       y = "trail_id",
+       x = "Yield",
+       color = "Data") +
+  scale_color_manual(values = c("Whole Data" = "blue", "Outliers" = "red")) +
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 12))
+```
+
+
+```{r}
+ggplot() +
+  geom_point(data = data, aes(x = treatment_id, y = Grain_yield, color = "Whole Data")) +
+  geom_point(data = outliers_byTreatment, aes(x = treatment_id, y = Grain_yield, color = "Outliers")) +
+  #facet_wrap(~NAME_2, scales = "free") +
+  #facet_grid(. ~ NAME_3)+
+  labs(title = "Whole Data vs Outliers",
+       x = "treatment_id",
+       y = "Yield",
+       color = "Data") +
+  scale_color_manual(values = c("Whole Data" = "blue", "Outliers" = "red")) +
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 12))
+```
+
+
+```{r}
+ggplot() +
+  geom_point(data = data, aes(x = Location, y = Grain_yield, color = "Whole Data")) +
+  geom_point(data = outliers_byLocation, aes(x = Location, y = Grain_yield, color = "Outliers")) +
+  labs(title = "Whole Data vs Outliers",
+       x = "Location",
+       y = "Yield",
+       color = "Data") +
+  scale_color_manual(values = c("Whole Data" = "blue", "Outliers" = "red")) +
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 12))
+```
+
+
+```{r}
+ggplot() +
+  geom_point(data = data, aes(x = variety, y = Grain_yield, color = "Whole Data")) +
+  geom_point(data = outliers_byvariety, aes(x = variety, y = Grain_yield, color = "Outliers")) +
+  labs(title = "Whole Data vs Outliers",
+       x = "variety",
+       y = "Yield",
+       color = "Data") +
+  scale_color_manual(values = c("Whole Data" = "blue", "Outliers" = "red")) +
+  #facet_wrap(~NAME_2, scales = "free") +
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 12))
+```
+
+
+```{r}
+ggplot() +
+  geom_point(data = data, aes(y = Data.source, x = Grain_yield, color = "Whole Data")) +
+  geom_point(data = outliers_bySource, aes(y = Data.source, x = Grain_yield, color = "Outliers")) +
+  #facet_wrap(~NAME_2, scales = "free") +
+  #facet_grid(. ~ NAME_3)+
+  labs(title = "Whole Data vs Outliers",
+       y = "Data.source",
+       x = "Yield",
+       color = "Data") +
+  scale_color_manual(values = c("Whole Data" = "blue", "Outliers" = "red")) +
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 12))
+
+```
+
+
+```{r}
+leaflet() %>%
+  addTiles() %>%
+  addPolygons(data = eth_out, fillColor = "grey95", color = "blue", weight = 2) %>%
+  addCircleMarkers(data = outliers_byLocation, color = "red", radius = 2, fillColor = "red", fillOpacity = 1.0, popup = paste0( "trail_id:"
+                                                                                                                       , outliers_byLocation$trail_id 
+                                                                                                                       , "<br>"
+                                                                                                                       ,"treatment_id:"
+                                                                                                                       , outliers_byLocation$treatment_id 
+                                                                                                                       , "<br>"
+                                                                                                                       ,"District:"
+                                                                                                                       , outliers_byLocation$NAME_3 
+                                                                                                                       , "<br>"
+                                                                                                                       ,"Yield:"
+                                                                                                                       , outliers_byLocation$Grain_yield
+                                                                                                                       , "<br>"
+  )) %>%
+  addCircleMarkers(data = outliers_byTreatment, color = "green", radius = 2, fillColor = "green", fillOpacity = 1.0, popup = paste0( "trail_id:"
+                                                                                                                                , outliers_byTreatment$trail_id 
+                                                                                                                                , "<br>"
+                                                                                                                                ,"treatment_id:"
+                                                                                                                                , outliers_byTreatment$treatment_id 
+                                                                                                                                , "<br>"
+                                                                                                                                ,"District:"
+                                                                                                                                , outliers_byTreatment$NAME_3 
+                                                                                                                                , "<br>"
+                                                                                                                                ,"Yield:"
+                                                                                                                                , outliers_byTreatment$Grain_yield
+                                                                                                                                , "<br>"
+  )) %>%
+  addCircleMarkers(data = outliers_bySource, color = "blue", radius = 2, fillColor = "blue", fillOpacity = 1.0, popup = paste0( "trail_id:"
+                                                                                                                                     , outliers_bySource$trail_id 
+                                                                                                                                     , "<br>"
+                                                                                                                                     ,"treatment_id:"
+                                                                                                                                     , outliers_bySource$treatment_id 
+                                                                                                                                     , "<br>"
+                                                                                                                                     ,"District:"
+                                                                                                                                     , outliers_bySource$NAME_3 
+                                                                                                                                     , "<br>"
+                                                                                                                                     ,"Yield:"
+                                                                                                                                     , outliers_bySource$Grain_yield
+                                                                                                                                     , "<br>"
+  )) %>%
+  addCircleMarkers(data = outliers_byvariety, color = "black", radius = 2, fillColor = "black", fillOpacity = 1.0, popup = paste0( "trail_id:"
+                                                                                                                                  , outliers_byvariety$trail_id 
+                                                                                                                                  , "<br>"
+                                                                                                                                  ,"treatment_id:"
+                                                                                                                                  , outliers_byvariety$treatment_id 
+                                                                                                                                  , "<br>"
+                                                                                                                                  ,"District:"
+                                                                                                                                  , outliers_byvariety$NAME_3 
+                                                                                                                                  , "<br>"
+                                                                                                                                  ,"Yield:"
+                                                                                                                                  , outliers_byvariety$Grain_yield
+                                                                                                                                  , "<br>"
+  )) %>%
+  addCircleMarkers(data = outliers_byTrail_id, color = "orange", radius = 2, fillColor = "orange", fillOpacity = 1.0, popup = paste0( "trail_id:"
+                                                                                                                                   , outliers_byTrail_id$trail_id 
+                                                                                                                                   , "<br>"
+                                                                                                                                   ,"treatment_id:"
+                                                                                                                                   , outliers_byTrail_id$treatment_id 
+                                                                                                                                   , "<br>"
+                                                                                                                                   ,"District:"
+                                                                                                                                   , outliers_byTrail_id$NAME_3 
+                                                                                                                                   , "<br>"
+                                                                                                                                   ,"Yield:"
+                                                                                                                                   , outliers_byTrail_id$Grain_yield
+                                                                                                                                   , "<br>"
+  )) %>%
+  setView(lng = 39.49, lat = 9.14, zoom = 6) # Center the map over Ethiopia
+```
+
+
+
+```{r}
+data_outlier <-data %>% filter(Grain_yield < 1000 | Grain_yield >7000)
+data_outlier <- subset(data_outlier, select = -geometry)
+
+data_n_outlier <- anti_join(data, data_outlier, by = "Id")
+```
+
+```{r}
+data_duplicates <- data %>% group_by(N_amount,P_amount,K_amount,Grain_yield,trail_id) %>%  filter(n() > 1)
+data_duplicates <- subset(data_duplicates, select = -geometry)
+
+data_n_duplicate <- anti_join(data_n_outlier, data_duplicates, by = "Id")
+
+```
+
+```{r}
+data_duplicates_yield <- data %>% group_by(Grain_yield,trail_id) %>%  filter(n() > 1)
+data_duplicates_yield <- subset(data_duplicates_yield, select = -geometry)
+data_n_duplicate_yield <- anti_join(data_n_duplicate, data_duplicates_yield, by = "Id")
+
+
+```
+
+```{r}
+data_trail_l3 <- data %>% group_by(trail_id) %>%  filter(n() < 3)
+data_trail_l3 <- subset(data_trail_l3, select = -geometry)
+data_n_loc_l3 <- anti_join(data_n_duplicate_yield, data_trail_l3, by = "Id")
+```
+
+
+```{r}
+filter_locations <- function(data) {
+  unique_locations <- unique(data$Location)
+  filtered_locations <- c()
+  for (loc in unique_locations) {
+    location_data <- data[data$Location == loc, ]
+    unique_trails <- unique(location_data$trail_id)
+    num_unique_trails <- length(unique_trails)
+    if (num_unique_trails < 3) {
+      filtered_locations <- c(filtered_locations, loc)
+    }
+  }
+  return(filtered_locations)
+}
+
+```
+
+
+```{r}
+filtered_locations <- filter_locations(data_n_loc_l3)
+data_locations <- data_n_loc_l3[(data_n_loc_l3$Location %in% filtered_locations), ]
+
+data_locations <- subset(data_locations, select = -geometry)
+```
+
+
+```{r}
+data_outlier_Year <-data %>% filter(Year < 2016)
+data_outlier_Year <- subset(data_outlier_Year, select = -geometry)
+```
+
+
+```{r}
+data_final <- data_n_loc_l3[!(data_n_loc_l3$Location %in% filtered_locations), ]
+data_final <- subset(data_final, select = -geometry)
+```
+
+
+```{r}
+data_outlier_k <-data_final %>% filter(K_amount > 75)
+
+data_final2 <-data_final %>% filter(K_amount <= 75)
+```
+
+
+```{r}
+data_final2 <- data_final2 |> dplyr::mutate(n_round = round_any(N_amount, 5), p_round = round_any(P_amount, 2), k_round = round_any(K_amount, 5))
+
+```
+
+
+```{r}
+options(dplyr.summarise.inform = FALSE)
+unique_tr_id <- unique(data_final2$trail_id)
+```
+
+
+```{r}
+yield_diff_mean <- data.frame()
+for(i in 1:length(unique_tr_id)){
+  unique_tr_yld <- data_final2 |> dplyr::filter(trail_id ==  unique_tr_id[i])
+  max_n <- max(unique_tr_yld$n_round)
+  max_p <- max(unique_tr_yld$p_round)
+  max_k <- max(unique_tr_yld$k_round)
+  unique_tr_yld2 <- unique_tr_yld |> dplyr::filter(n_round == max_n &  p_round == max_p & k_round == max_k)
+  if(nrow(unique_tr_yld2) == 0){
+    unique_tr_yld2 <- unique_tr_yld |> dplyr::filter(n_round == max_n &  p_round == max_p)
+  } 
+  if(nrow(unique_tr_yld2) == 0){
+    unique_tr_yld2 <- unique_tr_yld |> dplyr::filter(n_round == max_n)
+  }
+  if(nrow(unique_tr_yld2) > 1){
+    ref_yld <- median(unique_tr_yld2$Grain_yield)
+  }else{
+    ref_yld <- unique_tr_yld2$Grain_yield
+  }
+  unique_tr_yld <- unique_tr_yld |> dplyr::mutate(yield_diff = ref_yld - Grain_yield)
+  yield_diff_mean <- rbind(yield_diff_mean, unique_tr_yld)
+}
+
+
+saveRDS(yield_diff_mean, "~/shared-data/Data/Sorghum/fieldData/yield_diff.rds")
+```
+
+
+```{r}
+yield_diff_mean <- yield_diff_mean |> dplyr::mutate(ref_trt = ifelse(yield_diff == 0, T, F))
+ref_yld_data <- yield_diff_mean |> dplyr::filter(yield_diff == 0) |> dplyr::select(trail_id, yield_diff, treatment_id, Grain_yield)
+other_yld_data <- yield_diff_mean |> dplyr::filter(yield_diff != 0) |> dplyr::select(trail_id, yield_diff, treatment_id, Grain_yield)
+all_diff_data <- ref_yld_data |> dplyr::inner_join(other_yld_data, by = "trail_id")
+
+all_diff_data  |> ggplot(aes(y = Grain_yield.x, x = Grain_yield.y))+
+  geom_point()+
+  ylab("reference yield")+
+  xlab("other treatements yield")+
+  geom_abline(intercept = 0, slope = 1, color = 'blue')+
+  xlim(0, 10000)+
+  ylim(0, 10000)+
+  theme_bw()
+```
+
+
+```{r}
+#facet_wrap(~Year)
+
+#create variables to deal with scale issues:
+data_final2$Year <- as.factor(data_final2$Year)
+data_final2$Data.source <- as.factor(data_final2$Data.source)
+data_final2$Location <- as.factor(data_final2$Location)
+data_final2$trail_id <- as.factor(data_final2$trail_id)
+data_final2$NAME_2 <- as.factor(data_final2$NAME_2)
+
+data_final2$N100 <- data_final2$n_round/100
+data_final2$P100 <- data_final2$p_round/100
+data_final2$K100 <- data_final2$k_round/100
+fita <- lmer(sqrt(Grain_yield) ~ n_round + p_round + k_round + Year + (1|trail_id), data= data_final2)
+
+plot(fita)
+```
+
+
+```{r}
+fitb <- lmer(sqrt(Grain_yield) ~ n_round + p_round + k_round + Year + (1|trail_id) + Data.source, data = data_final2)
+anova(fita, fitb)
+
+fitc <- lmer(sqrt(Grain_yield) ~ n_round + p_round + k_round + Year + NAME_2 + (1|trail_id) + Data.source, data = data_final2)
+anova(fitb, fitc)
+
+fitd <- lmer(sqrt(Grain_yield) ~ n_round + p_round + k_round + (1|Year) + NAME_2 + (1|trail_id) + Data.source, data = data_final2)
+anova(fitc, fitd)
+
+fite <- update(fitc, . ~ . + N100:P100 + N100:K100 + P100:K100 + N100:P100:K100)
+anova(fitc, fite)
+
+fitf <- update(fite, . ~ . +(0 + N100|trail_id) +(0 + P100|trail_id) +(0 + K100|trail_id))
+anova(fite, fitf)
+#r.squaredGLMM(fitf) 
+plot(fitf)
+summary(fitf)
+data_final2$blup <- predict(fitf, data_final2)**2
+```
+
+
+```{r}
+options(dplyr.summarise.inform = FALSE)
+unique_tr_id <- unique(data_final2$trail_id)
+yield_diff_mean <- data.frame()
+for(i in 1:length(unique_tr_id)){
+  unique_tr_yld <- data_final2 |> dplyr::filter(trail_id ==  unique_tr_id[i])
+  max_n <- max(unique_tr_yld$n_round)
+  max_p <- max(unique_tr_yld$p_round)
+  max_k <- max(unique_tr_yld$k_round)
+  unique_tr_yld2 <- unique_tr_yld |> dplyr::filter(n_round == max_n &  p_round == max_p & k_round == max_k)
+  if(nrow(unique_tr_yld2) == 0){
+    unique_tr_yld2 <- unique_tr_yld |> dplyr::filter(n_round == max_n &  p_round == max_p)
+  } 
+  if(nrow(unique_tr_yld2) == 0){
+    unique_tr_yld2 <- unique_tr_yld |> dplyr::filter(n_round == max_n)
+  }
+  if(nrow(unique_tr_yld2) > 1){
+    ref_yld <- median(unique_tr_yld2$blup)
+  }else{
+    ref_yld <- unique_tr_yld2$blup
+  }
+  unique_tr_yld <- unique_tr_yld |> dplyr::mutate(yield_diff = ref_yld - blup)
+  yield_diff_mean <- rbind(yield_diff_mean, unique_tr_yld)
+}
+
+yield_diff_mean <- yield_diff_mean |> dplyr::mutate(ref_trt = ifelse(yield_diff == 0, T, F))
+ref_yld_data <- yield_diff_mean |> dplyr::filter(yield_diff == 0) |> dplyr::select(trail_id, yield_diff, treatment_id, blup)
+other_yld_data <- yield_diff_mean |> dplyr::filter(yield_diff != 0) |> dplyr::select(trail_id, yield_diff, treatment_id, blup)
+all_diff_data <- ref_yld_data |> dplyr::inner_join(other_yld_data, by = "trail_id")
+
+yield_diff_mean <- unique(yield_diff_mean[, c("trail_id","Data.source", "Year","NAME_1","NAME_2","NAME_3", "Long", "Lat","n_round", "p_round", "k_round", "treatment_id","ref_trt","variety","Grain_yield","blup", "yield_diff")])
+saveRDS(yield_diff_mean, "~/shared-data/Data/Sorghum/fieldData/sorghum_modelReady.rds")
+```
+
+
+```{r}
+yield_diff_mean <- yield_diff_mean |> dplyr::mutate(ref_trt = ifelse(yield_diff == 0, T, F))
+ref_yld_data <- yield_diff_mean |> dplyr::filter(yield_diff == 0) |> dplyr::select(trail_id, yield_diff, treatment_id, blup)
+other_yld_data <- yield_diff_mean |> dplyr::filter(yield_diff != 0) |> dplyr::select(trail_id, yield_diff, treatment_id, blup)
+all_diff_data <- ref_yld_data |> dplyr::inner_join(other_yld_data, by = "trail_id")
+
+all_diff_data  |> ggplot(aes(y = blup.x, x = blup.y))+
+  geom_point()+
+  ylab("reference yield")+
+  xlab("other treatements yield")+
+  geom_abline(intercept = 0, slope = 1, color = 'blue')+
+  xlim(0, 10000)+
+  ylim(0, 10000)+
+  theme_bw()
+#facet_wrap(~Year)
+```
+
+
+```{r}
+crop_mask <- terra::vect("~/shared-data/Data/Sorghum/geoSpatial/Sorghum_growing_areas.shp") |> st_as_sf()
+data_final2_cm <- data_final2 |> terra::vect(geom = c('Long', 'Lat'), crs = "epsg:4326") |> st_as_sf() 
+ggplot() +
+  geom_sf(data = crop_mask,
+          fill = NA,
+          color = "black")+
+  geom_sf(data = data_final2_cm, color = "lightgreen",
+          na.rm = T)+
+  coord_sf()+
+  theme_bw()
+
+```
+
+
+```{r}
+```
+
+
+```{r}
+
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

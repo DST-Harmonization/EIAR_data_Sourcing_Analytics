@@ -1,0 +1,603 @@
+---
+title: "Exploratory Data Analysis - DST Harmonization Tef Data"
+output: html_document
+author: "ICRISAT"
+date: "2024-03-13"
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1. Load required packages
+
+### This chunk loads necessary R packages for data manipulation, spatial analysis, and visualization.
+
+```{r, message=FALSE, warning=F}
+library(tidyverse)
+library(sf)
+library(terra)
+library(klippy)
+library(geodata)
+library(plyr)
+library(tmap)
+library(tmaptools)
+library(lme4)
+library(simr)
+```
+
+
+## 2.Structure of the data 
+
+### Reads the Tef dataset from a CSV file, specifying that the first row contains headers, and sets the file encoding to Latin1.
+
+```{r}
+Tef <- read.csv("~/shared-data/Data/Tef/fieldData/teff_dst_team_shared_v1.csv", header = T, sep = ",", fileEncoding="latin1")
+length(unique(Tef$unique_id))
+```
+
+### Displays the number of rows and columns in the Tef dataset.
+
+```{r}
+dim(Tef)
+```
+
+### Lists all column names of the Tef dataset.
+
+```{r}
+colnames(Tef)
+```
+
+###  Provides a concise summary of the Tef dataset, including the data type of each column.
+
+```{r}
+glimpse(Tef)
+```
+
+### Shows the first three rows of the dataset.
+
+```{r}
+head_Tef <- head(Tef,3)
+rmarkdown::paged_table(head_Tef, options=NULL) 
+```
+
+### Calculates and displays the number of NA (missing) values in each column of the dataset.
+
+```{r}
+Tef_sumr <- Tef |>
+  summarise_all(~sum(is.na(.)))
+rmarkdown::paged_table(Tef_sumr, options=NULL) 
+```
+
+## 3. Data joining and creating combined columns
+
+```{r}
+eth_dist <- geodata::gadm(path = ".", "eth", level = 3) |> st_as_sf()
+Tef_pts <- terra::vect(Tef, geom = c('long', 'lat'), crs = "epsg:4326") |> st_as_sf()
+dim(Tef_pts)
+
+Tef_joined <- st_join(Tef_pts, eth_dist) 
+Tef_joined <- st_coordinates(Tef_joined) |> cbind(as.data.frame(Tef_joined))  |> dplyr::select(unique_id, X, Y, year, source, treatment, n_kgpha, p_kgpha, k_kgpha, grain_yield_kgpha, NAME_1, NAME_2, NAME_3)
+head(Tef_joined, 3)
+```
+
+Let's create a trial id by concatenating long, lat, year and source. Besides we round the treatment values and concatenate to create a unique treatment id.
+before that, because there are treatments from the same source, same time and very close locations having different GPS, (4 digits only on lat), 
+we choose to round the GPS to bring eh different treatments from the same trial have one locations 
+
+Finding very close points to form a trial_id 
+```{r}
+Tef_joined <- Tef_joined |> dplyr::mutate(long2 = round(X, digits = 3), lat2 = round(Y , digits = 3), trial_id = paste(long2, lat2, year, source, sep = "_"),trial_id2 = paste(X, Y, year, source, sep = "_"))  
+
+```
+
+## 4. sorting out the issue between unique ID and trial ID
+There are trial IDs with different unique ID, and this is causing duplication in the data
+identify those data below and drop the unique_id and use trial ID from here on
+
+```{r, unique ID verus trial ID}
+tids_moreids <- Tef_joined %>% 
+  dplyr::group_by(trial_id, unique_id) %>%  
+  dplyr::summarise(n = n()) 
+tids_moreids[tids_moreids$n > 1, ]
+
+Tef_joined1 <- Tef_joined[Tef_joined$trial_id %in% tids_moreids$trial_id, ] 
+dim(Tef_joined)
+
+Tef_joined <- Tef_joined %>% dplyr::select(-c(unique_id)) %>% unique()
+dim(Tef_joined)
+
+length(unique(Tef_joined$trial_id))
+length(unique(Tef_joined$trial_id2))
+```
+
+```{r}
+Tef_joined <- Tef_joined |> dplyr::mutate(NAME_1 = replace(NAME_1, NAME_1 == "Southern Nations, Nationalities", "SNNP"))|> dplyr::mutate(n_rate2 = round_any(n_kgpha, 5), p_rate2 = round_any(p_kgpha, 2), k_rate2 = round_any(k_kgpha, 10)) |> dplyr::mutate(treatment_id = 
+paste(n_rate2, p_rate2, k_rate2, sep = "_")) |> dplyr::mutate(location = 
+paste(NAME_2, NAME_3, sep = "_"))
+dim(Tef_joined)
+```
+## 5. remove points with < 300 kg/ha, removes 192 data points
+
+```{r}
+unique(Tef_joined[Tef_joined$grain_yield_kgpha < 500, ]$treatment_id)
+
+dim(Tef_joined %>% dplyr::filter(grain_yield_kgpha < 500, ))
+Tef_joined <- Tef_joined %>% dplyr::filter(grain_yield_kgpha > 500, )
+
+```
+
+
+## 6. Spatial locations of observations
+
+Check the observations that lies inside the Tef crop mask area
+
+```{r, message=FALSE}
+eth <- geodata::gadm(path = ".", "eth", level = 0) |> st_as_sf()
+class(eth)
+```
+
+Identify points that lie outside of Ethiopia
+```{r}
+Tef_joined2 <- Tef_joined |> terra::vect(geom = c('X', 'Y'), crs = "epsg:4326") |> st_as_sf() 
+ggplot() +
+  geom_sf(data = eth,
+          fill = NA,
+          color = "black") +
+  geom_sf(data = Tef_joined2,
+          aes(color = NAME_1, size = grain_yield_kgpha),
+          na.rm = T) +
+  coord_sf() +
+  theme_bw()
+```
+
+Select those points that lie outside of the boundary and flag the observations
+```{r}
+flag1 <- Tef_joined |> dplyr::filter(is.na(NAME_1) | is.na(NAME_2) | is.na(NAME_3))
+rmarkdown::paged_table(flag1, options=NULL)
+```
+
+Let's add a comment column for the flagged data specifying the reason for flag.
+
+```{r}
+flag1$comment <- "geolocation error"
+flag1$description <- "Outside of the boundary of Ethiopia"
+```
+
+No of flagged data by treatment id
+```{r}
+flag1 |> dplyr::group_by(source, treatment_id) |> dplyr::summarise(n = n()) |> dplyr::arrange(desc(n))
+```
+
+Let's remove the observations outside of Ethiopia
+```{r}
+Tef_filtered <- Tef_joined |> dplyr::filter(!(trial_id %in% flag1$trial_id))
+dim(Tef_filtered)
+```
+
+## 7. Number of observations by region and global yield data distibution 
+No of observations per region 
+```{r}
+Tef_filtered |> dplyr::group_by(NAME_1) |> dplyr::summarize(n = n()) |>
+  dplyr::arrange(desc(n))
+```
+
+```{r}
+Tef_filtered |> ggplot(aes(x = source, y = grain_yield_kgpha, fill = source))+
+  geom_boxplot()+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8), legend.position = 'none')
+```
+## 8. Idenitfy observations with yield values > 5 ton/ha and SG 2000
+```{r}
+dim(Tef_filtered)
+sg_2000 <- Tef_filtered |> dplyr::filter(source == "SG 2000")
+dim(sg_2000)
+
+yld_gr_7k <- Tef_filtered |> dplyr::filter(grain_yield_kgpha > 5000)
+Tef_filtered <- Tef_filtered |> dplyr::filter(source != "SG 2000" & grain_yield_kgpha <= 5000)
+dim(yld_gr_7k)
+dim(Tef_filtered)
+```
+## 9. View the summary of n,p,k,grain_yield
+
+```{r}
+for(i in c(6:9)){
+  message(colnames(Tef_filtered)[i])
+  print(summary(Tef_filtered[,i]))
+}
+```
+Distribution of treatments and yield
+```{r}
+par(mfrow=c(2,2))
+hist(Tef_filtered$grain_yield_kgpha, xlab = "yield", main = "")
+hist(Tef_filtered$n_rate2, xlab = "N rate", main = "")
+hist(Tef_filtered$p_rate2, xlab = "P rate", main = "")
+hist(Tef_filtered$k_rate2, xlab = "K rate", main = "")
+```
+## 10. Number of observations by year
+Summarize data collected in different year
+```{r  warning=FALSE, fig.width=10}
+Tef_filtered |> ggplot(aes(year))+
+  geom_bar(fill = "lightblue")+
+  xlab("year")+
+  ylab("observation")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 12))
+```
+
+## 11. Number of observations by data source
+
+```{r}
+obs_src <- Tef_filtered |> dplyr::group_by(source) |> dplyr::summarise(n = n()) |> 
+  dplyr::arrange(desc(n))
+rmarkdown::paged_table(obs_src, options = NULL) 
+```
+## 12. Number of observations by data treatment
+
+```{r}
+obs_trt <- Tef_filtered |> dplyr::group_by(treatment_id) |> dplyr::summarise(n = n()) |> dplyr::arrange(desc(n))
+rmarkdown::paged_table(obs_trt, options=NULL) 
+```
+
+## 13. Number of observations by data treatment and source
+```{r}
+obs_trt_src <- Tef_filtered |> dplyr::group_by(source, treatment_id) |> dplyr::summarize(n = n()) |>
+  dplyr::arrange(desc(n))
+rmarkdown::paged_table(obs_trt_src, options=NULL) 
+```
+
+
+## 14. Number of observations by trial ID
+```{r}
+obs_src_trid <- Tef_filtered |> dplyr::group_by(source, trial_id) |> dplyr::summarize(n = n()) |> dplyr::arrange(desc(n))
+rmarkdown::paged_table(obs_src_trid, options=NULL) 
+```
+
+
+## 15. Trials with only one data points (lat, long, year and source)
+```{r fig.height= 7}
+few_observs <- Tef_filtered |> dplyr::group_by(trial_id) |> dplyr::summarise(n = n()) |> dplyr::filter(n == 1)
+Tef_few_observs <- Tef_filtered |> dplyr::filter((trial_id %in% few_observs$trial_id))
+Tef_few_observs |> ggplot(aes(x = source, y = grain_yield_kgpha, fill = source))+
+  geom_point()+
+  facet_wrap(~year)+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 8), legend.position = 'none', strip.text.x = element_text(size = 12))
+```
+
+```{r}
+dim(Tef_few_observs)
+dim(Tef_filtered)
+```
+
+
+## 16. Excluding dat flaggged to be checked 
+```{r warning=FALSE}
+few_obs_data <- Tef_filtered |> dplyr::filter(trial_id %in% few_observs$trial_id)
+
+few_obs_data$comment <- "only one observation per trial"
+yld_gr_7k$comment <- "greater than 5000 kg/ha"
+sg_2000$comment <- "SG 2000 data" 
+flagged_data <- rbind(sg_2000, yld_gr_7k, few_obs_data)
+dim(flagged_data)
+
+#write.csv(flagged_data, "./EIAR_toCheck/flagged_data.csv", col.names = T, row.names = F)
+```
+
+```{r}
+### the SG 2000 and yield > 5 t/ha are already removed above
+Tef_filtered <- Tef_filtered |> dplyr::filter(!(trial_id %in% flagged_data$trial_id))
+dim(Tef_filtered)
+```
+
+
+## 17. ISFM treatments
+ 407 trial IDs, from these we are excluding the treatments with organic addition: this drops ~ 44 points
+```{r}
+Tef_filtered$index <- c(1:nrow(Tef_filtered))
+orgIndex <- grep("Org", Tef_filtered$treatment)
+orgdata <- droplevels(Tef_filtered[Tef_filtered$index %in% orgIndex, ])
+Tef_filtered <- droplevels(Tef_filtered[!Tef_filtered$index %in% orgIndex, ])
+dim(Tef_filtered)
+```
+## 18. same yield for several tereatments within a trial
+Let's check the trials that have the same yield for different treatments in a trial. It seems a rep mean yield is 
+assigned to all treatments in rep. 
+
+```{r}
+Tef_filtered$index <- paste(Tef_filtered$trial_id, Tef_filtered$treatment_id, sep="_")
+dd <- NULL
+for (tids in unique(Tef_filtered$trial_id)){
+  tdata <- Tef_filtered[Tef_filtered$trial_id == tids, ]
+  ttable <- as.data.frame(table(tdata$grain_yield_kgpha))
+  ttable <- droplevels(ttable[ttable$Freq > 1,])
+  if(nrow(ttable) > 0){
+     tdata <- tdata[tdata$grain_yield_kgpha %in% ttable$Var1, ]
+  dd <- rbind(dd, tdata)
+  }
+}
+dd <- dd %>% dplyr::select(c(index, trial_id)) %>% unique()
+dim(dd)
+length(unique(dd$trial_id))
+```
+
+Let's filter out the above observations from the Tef filtered data
+```{r}
+dim(Tef_filtered)
+length(unique(Tef_filtered$trial_id))
+Tef_filtered <- Tef_filtered %>% dplyr::filter(!index %in% dd$index) %>% unique()
+dim(Tef_filtered)
+length(unique(Tef_filtered$trial_id))
+```
+
+```{r}
+obs_src_reg <- Tef_filtered |> dplyr::group_by(source, NAME_1) |> dplyr::summarize(n = n()) |>
+  dplyr::arrange(desc(n))
+rmarkdown::paged_table(obs_src_reg, options=NULL) 
+```
+
+No of observations by region and treatment
+```{r}
+obs_reg_trt <- Tef_filtered |> dplyr::group_by(treatment_id, NAME_1) |> dplyr::summarize(n = n()) |>
+  dplyr::arrange(treatment_id)
+rmarkdown::paged_table(obs_reg_trt, options=NULL) 
+```
+## 19. Yield ranges per region
+
+```{r, fig.width = 8}
+Tef_filtered |>
+ggplot(aes(y = grain_yield_kgpha, fill = NAME_1))+
+  geom_boxplot(width = 0.2, outlier.colour = 'red')+
+  theme_bw()+
+  theme(axis.text.x = element_blank(), legend.position = "right")+
+   guides(fill = guide_legend(nrow = 4))
+```
+
+
+## 20. Yield ranges per Zone and region
+```{r}
+avg_yld_zone <- Tef_filtered |> dplyr::group_by(NAME_1, NAME_2) |> dplyr::summarize(mean_yield = mean(grain_yield_kgpha)) |> dplyr::arrange(desc(mean_yield))
+rmarkdown::paged_table(avg_yld_zone, options=NULL) 
+```
+
+Within and between zone and region Yield difference
+```{r}
+Tef_filtered |> 
+ggplot(aes(y = grain_yield_kgpha, fill = NAME_2))+
+  geom_boxplot(width = 0.2, outlier.colour = 'red')+
+  facet_wrap(~NAME_1)+
+  theme_bw()+
+  theme(axis.text.x = element_blank(), legend.position = "none")+
+   guides(fill = guide_legend(nrow = 4))
+```
+
+The average yield by district
+```{r}
+avg_yld_dist <- Tef_filtered |> dplyr::group_by(location) |> dplyr::summarize(mean_yield = mean(grain_yield_kgpha)) |> dplyr::arrange(desc(mean_yield))
+rmarkdown::paged_table(avg_yld_dist, options=NULL) 
+```
+
+Few Observations by year
+```{r}
+obs_few_year <- Tef_filtered |> dplyr::group_by(year) |> dplyr::summarise(n = n()) |> dplyr::arrange(n)
+rmarkdown::paged_table(obs_few_year, options=NULL) 
+```
+
+Observations by year
+```{r}
+few_year <- Tef_filtered |> dplyr::filter(year %in% c(1992, 1990, 1991, 2008, 2009, 2010, 2017)) |> 
+  dplyr::group_by(year, trial_id) |> dplyr::summarise(n = n()) |> dplyr::arrange(n)
+few_year
+```
+
+The data for years with observations are sourced from literature, isolated students work for PhD or MSc
+```{r}
+Tef_filtered |> dplyr::filter(year %in% c(1992, 1990, 1991, 2008, 2009, 2010)) |>
+  ggplot(aes(x = treatment_id, y = grain_yield_kgpha, color = source))+
+  geom_point(size = 2)+
+  facet_grid(NAME_2 ~ year)+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 6))
+```
+
+## 21. Interactive map for yield  
+```{r}
+# Set tmap to view mode
+eth_reg <- geodata::gadm(path = ".", country = "Eth", level = 1) |> st_as_sf()
+Tef_filtered2 <- Tef_filtered |> 
+  terra::vect(geom = c('X', 'Y'), crs = 'epsg:4326') |> st_as_sf()
+tmap_mode("view")
+tm_shape(eth)+
+  tm_borders(col = "black") +
+tm_shape(eth_reg) +
+  tm_borders(col = "gray")+
+tm_shape(Tef_filtered2)+
+  tm_bubbles(col = "grain_yield_kgpha",
+          title.col="Grain Yield (kg/ha)", 
+          popup.vars=c("Zone"="NAME_2","DIstrict"="NAME_3",
+                       "treatment"="treatment_id",
+                       "Grain Yield"="grain_yield_kgpha", 
+                       "Trial ID"="trial_id"),
+          popup.format=list(grain_yield_kgpha=list(digits=2))) 
+```
+
+From the above map there is no spatial pattern of grain yield.
+
+
+
+## 22. final selected data
+
+```{r}
+Tef_filtered <- Tef_filtered |> dplyr::filter(grain_yield_kgpha <= 15000) 
+Tef_filtered |> 
+  ggplot(aes(x = source, y = grain_yield_kgpha, fill = source))+
+  geom_boxplot()+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8), legend.position = 'none')
+```
+
+
+## 23. Yield from the 0:0:0 treatment, the control by Zone and Region
+It can help to understand regions with high baseline yield
+```{r}
+Tef_filtered |> dplyr::filter(treatment_id == "0_0_0") |>
+ggplot(aes(y = grain_yield_kgpha, x = year, fill = as.factor(year)))+
+  geom_boxplot()+
+  ylab("yield")+
+  facet_wrap(~NAME_1)+
+  theme_bw()+
+  theme(axis.text.x = element_blank(), axis.title.x =  element_blank())
+```
+
+```{r, fig.height=10, fig.width=13}
+Tef_filtered |> dplyr::filter(treatment_id == "0_0_0" & year %in% c(2020,2021) & NAME_1 %in% c('Amhara', 'Oromia', 'SNNP')) |>
+ggplot(aes(y = grain_yield_kgpha, x = NAME_2, fill = as.factor(year)))+
+  geom_boxplot()+
+  ylab("yield")+
+  facet_wrap(~source, scale = 'free_x')+
+  theme_bw()+
+  xlab("Zone")+
+  theme(axis.text.x = element_text(size = 14, angle = 15, hjust = 1), strip.text.x = element_text(size = 10))
+```
+
+## 24. Yield Effect
+
+Reference treatment need to be selected within every trial as there are different NPK rates tested.
+```{r, warning=FALSE}
+options(dplyr.summarise.inform = FALSE)
+unique_tr_id <- unique(Tef_filtered$trial_id)
+yield_diff_mean <- data.frame()
+for(i in 1:length(unique_tr_id)){
+  unique_tr_yld <- Tef_filtered |> dplyr::filter(trial_id ==  unique_tr_id[i])
+  max_n <- max(unique_tr_yld$n_rate2)
+  max_p <- max(unique_tr_yld$p_rate2)
+  max_k <- max(unique_tr_yld$k_rate2)
+  unique_tr_yld2 <- unique_tr_yld |> dplyr::filter(n_rate2 == max_n &  p_rate2 == max_p & k_rate2 == max_k)
+  if(nrow(unique_tr_yld2) == 0){
+      unique_tr_yld2 <- unique_tr_yld |> dplyr::filter(n_rate2 == max_n &  p_rate2 == max_p)
+  } 
+  if(nrow(unique_tr_yld2) == 0){
+      unique_tr_yld2 <- unique_tr_yld |> dplyr::filter(n_rate2 == max_n)
+  }
+  if(nrow(unique_tr_yld2) > 1){
+      ref_yld <- median(unique_tr_yld2$grain_yield_kgpha)
+  }else{
+      ref_yld <- unique_tr_yld2$grain_yield_kgpha
+  }
+unique_tr_yld <- unique_tr_yld |> dplyr::mutate(yield_diff = ref_yld - grain_yield_kgpha)
+yield_diff_mean <- rbind(yield_diff_mean, unique_tr_yld)
+}
+saveRDS(yield_diff_mean, "~/shared-data/Data/Tef/fieldData/yield_diff.rds")
+```
+
+Scatter plot of the yield difference: there are quite some negative yield effects in the data
+```{r}
+yield_diff_mean <- yield_diff_mean |> dplyr::mutate(ref_trt = ifelse(yield_diff == 0, T, F))
+ref_yld_data <- yield_diff_mean |> dplyr::filter(yield_diff == 0) |> dplyr::select(trial_id, yield_diff, treatment_id, grain_yield_kgpha)
+other_yld_data <- yield_diff_mean |> dplyr::filter(yield_diff != 0) |> dplyr::select(trial_id, yield_diff, treatment_id, grain_yield_kgpha)
+all_diff_data <- ref_yld_data |> dplyr::inner_join(other_yld_data, by = "trial_id")
+
+all_diff_data  |> ggplot(aes(y = grain_yield_kgpha.x, x = grain_yield_kgpha.y))+
+  geom_point()+
+  ylab("reference yield")+
+  xlab("other treatements yield")+
+  geom_abline(intercept = 0, slope = 1, color = 'blue')+
+  xlim(0, 5000)+
+  ylim(0, 5000)+
+  theme_bw()
+  #facet_wrap(~year)
+```
+
+## 25. Linear mixed effects model to reduce the ranomd noise in the data
+
+```{r}
+#create variables to deal with scale issues:
+Tef_filtered$year <- as.factor(Tef_filtered$year)
+Tef_filtered$source <- as.factor(Tef_filtered$source)
+Tef_filtered$location <- as.factor(Tef_filtered$location)
+Tef_filtered$trial_id <- as.factor(Tef_filtered$trial_id)
+Tef_filtered$NAME_2 <- as.factor(Tef_filtered$NAME_2)
+
+Tef_filtered$N100 <- Tef_filtered$n_rate2/100
+Tef_filtered$P100 <- Tef_filtered$p_rate2/100
+Tef_filtered$K100 <- Tef_filtered$k_rate2/100
+
+fita <- lmer(sqrt(grain_yield_kgpha) ~ n_rate2 + p_rate2 + k_rate2 + year + (1|trial_id), data= Tef_filtered)
+
+fitb <- lmer(sqrt(grain_yield_kgpha) ~ n_rate2 + p_rate2 + k_rate2 + year + (1|trial_id) + source, data = Tef_filtered)
+anova(fita, fitb)
+
+fitc <- lmer(sqrt(grain_yield_kgpha) ~ n_rate2 + p_rate2 + k_rate2 + year + NAME_2 + (1|trial_id) + source, data = Tef_filtered)
+anova(fitb, fitc)
+
+fitd <- lmer(sqrt(grain_yield_kgpha) ~ n_rate2 + p_rate2 + k_rate2 + (1|year) + NAME_2 + (1|trial_id) + source, data = Tef_filtered)
+anova(fitc, fitd)
+
+fite <- update(fitc, . ~ . + N100:P100 + N100:K100 + P100:K100 + N100:P100:K100)
+anova(fitc, fite)
+
+fitf <- update(fite, . ~ . +(0 + N100|trial_id) +(0 + P100|trial_id) +(0 + K100|trial_id))
+anova(fite, fitf)
+#r.squaredGLMM(fitf) 
+
+## fitting the model with RMLE
+fitg <- update(fite, . ~ . +(0 + N100|trial_id) +(0 + P100|trial_id) +(0 + K100|trial_id))
+Tef_filtered$blup <- predict(fitg, Tef_filtered)**2
+```
+
+
+## 26. compute the yield effect using the BLUP from the linear mixed effects model
+```{r, warning=FALSE}
+options(dplyr.summarise.inform = FALSE)
+unique_tr_id <- unique(Tef_filtered$trial_id)
+yield_diff_mean <- data.frame()
+for(i in 1:length(unique_tr_id)){
+  unique_tr_yld <- Tef_filtered |> dplyr::filter(trial_id ==  unique_tr_id[i])
+  max_n <- max(unique_tr_yld$n_rate2)
+  max_p <- max(unique_tr_yld$p_rate2)
+  max_k <- max(unique_tr_yld$k_rate2)
+  unique_tr_yld2 <- unique_tr_yld |> dplyr::filter(n_rate2 == max_n &  p_rate2 == max_p & k_rate2 == max_k)
+  if(nrow(unique_tr_yld2) == 0){
+      unique_tr_yld2 <- unique_tr_yld |> dplyr::filter(n_rate2 == max_n &  p_rate2 == max_p)
+  } 
+  if(nrow(unique_tr_yld2) == 0){
+      unique_tr_yld2 <- unique_tr_yld |> dplyr::filter(n_rate2 == max_n)
+  }
+  if(nrow(unique_tr_yld2) > 1){
+      ref_yld <- median(unique_tr_yld2$blup)
+  }else{
+      ref_yld <- unique_tr_yld2$blup
+  }
+unique_tr_yld <- unique_tr_yld |> dplyr::mutate(yield_diff = ref_yld - blup)
+yield_diff_mean <- rbind(yield_diff_mean, unique_tr_yld)
+}
+
+```
+
+Scatter plot of the yield difference with BLUPS
+```{r}
+yield_diff_mean <- yield_diff_mean |> dplyr::mutate(ref_trt = ifelse(yield_diff == 0, T, F))
+ref_yld_data <- yield_diff_mean |> dplyr::filter(yield_diff == 0) |> dplyr::select(trial_id, yield_diff, treatment_id, blup)
+other_yld_data <- yield_diff_mean |> dplyr::filter(yield_diff != 0) |> dplyr::select(trial_id, yield_diff, treatment_id, blup)
+all_diff_data <- ref_yld_data |> dplyr::inner_join(other_yld_data, by = "trial_id")
+
+yield_diff_mean <- unique(yield_diff_mean[, c("trial_id","source", "year","NAME_1","NAME_2","NAME_3", "long2", "lat2","n_rate2", "p_rate2", "k_rate2", "treatment_id","ref_trt","grain_yield_kgpha","blup", "yield_diff")])
+
+saveRDS(yield_diff_mean, "~/shared-data/Data/Tef/fieldData/tef_modelReady.rds")
+
+
+
+all_diff_data  |> ggplot(aes(y = blup.x, x = blup.y))+
+  geom_point()+
+  ylab("reference yield")+
+  xlab("other treatements yield")+
+  geom_abline(intercept = 0, slope = 1, color = 'blue')+
+  xlim(0, 5000)+
+  ylim(0, 5000)+
+  theme_bw()
+  #facet_wrap(~year)
+```
+
+
