@@ -1,5 +1,6 @@
 
-##################################################################################################################
+
+#################################################################################################################
 # 1. Sourcing required packages -------------------------------------------
 #################################################################################################################
 #################################################################################################################
@@ -23,6 +24,7 @@ suppressWarnings(suppressPackageStartupMessages(invisible(lapply(packages_requir
 ## EDA, Geo-spatila data sourcing + GYGA, ML, is the procedure. 
 
 
+
 ## inputDataTrial[inputDataTrial$source=="EIAR_NPrate",] ## get EthioSis and weather data
 
 inputDataTrial <- readRDS("~/shared-data/Data/Maize/fieldData/maize_modelReady.rds")
@@ -39,8 +41,7 @@ tids <- unique(soildata_EthSIS$trial_id)
 
 dim(inputDataTrial)
 inputDataTrial <- inputDataTrial %>% 
-  dplyr::select(-c(source, year, NAME_1, long2, lat2, WLY_wet, WLY_dry,
-                   grain_yield_kgpha, treatment_id, ref_trt, yield_diff, COUNTRY)) %>% 
+  dplyr::select(-c(source, year, NAME_1, long2, lat2, grain_yield_kgpha, treatment_id, ref_trt, yield_diff)) %>% 
   unique()
 dim(inputDataTrial)
 inputDataTrial[inputDataTrial$trial_id == "34.38_9.54_2009_P_calibration NSRC", ]
@@ -126,15 +127,14 @@ maize_ML_trial <- maize_ML_trial %>% dplyr::select(-c(trial_id))
 dim(maize_ML_trial)
 colnames(maize_ML_trial)
 
-#Top 15 variables 
-top_vars <- c("NAME_3", "n_rate2", "p_rate2", "Rainfall_month2", "Tmin_month1",
-              "Tmin_month3", "Ca_sat_rf", "P_rf", "S_rf", "relativeHumid_month2",
-              "Rainfall_month3", "solarRad_month2", "Rainfall_month1", "B_rf",
-              "relativeHumid_month3", "blup")
+
+top_vars <- c("NAME_3", "n_rate2", "p_rate2", "Rainfall_month2", "Tmin_month1","Tmin_month2", "altClass", "totalRF",
+              "Tmin_month3", "Ca_rf", "P_rf", "N_rf","OM_pct_rf",  "pH_rf", "nrRainyDays",
+              "Rainfall_month3", "Rainfall_month1", "K_Mg", "Mg_rf","Tmax_month1", "Tmax_month2", "Tmax_month3","blup")
 #################################################################################################################
 # 3. train the ML
 #################################################################################################################
-pathOut <- "~/shared-data/Data/Maize/Intermediate/grainwt"
+pathOut <- "/home/jovyan/shared-data/Data/Maize/Intermediate/grainwt"
 if (!dir.exists(pathOut)){
   dir.create(file.path(pathOut), recursive = TRUE)
 }
@@ -148,13 +148,21 @@ dim(ML_inputData)
 str(ML_inputData)
 colnames(ML_inputData)
 
+names(ML_inputData) <- c("Wereda","N_fert","P_fert","Rainfall_M2", "Tmin_M1","Tmin_M2","AltitudeClass",
+                         "totalRainfall","Tmin_M3","Ca_rf","P_rf","N_rf","OM_pct_rf","pH_rf", "nrRainyDays",
+                         "Rainfall_M3", "Rainfall_M1", "K_Mg","Mg_rf","Tmax_M1","Tmax_M2", "Tmax_M3","blup")          
+
+
 response <- "blup"
 predictors <- ML_inputData |> names()
-predictors <- predictors[!predictors %in% c("Ca_rf", "Ca_Mg", "Mg_rf", "Mg_sat_rf", "MnAl_rf", "Zn_rf", "Cu_rf","Fe_rf", "K_Mg", "blup")]
+predictors <- predictors[!predictors %in% c("blup")]
+
+# predictors <- predictors[!predictors %in% c("Ca_rf", "Ca_Mg", "B_rf",  "Mg_sat_rf", "MnAl_rf", "Zn_rf", "Cu_rf","Fe_rf","blup", "NAME_3", "relativeHumid_month2","relativeHumid_month3")]
 
 ###############################################################################
 ###############################################################################
 ## test the different ML models 
+
 
 # setting up a local h2o cluster
 h2o.init()
@@ -212,7 +220,7 @@ ML_gbm <- h2o.gbm(x = predictors,
                   seed = 444)
 
 
-pathOut <- "~/shared-data/Data/Maize/Intermediate/grainwt"
+pathOut <- "/home/jovyan/shared-data/Data/Maize/Intermediate/grainwt"
 model_path <- h2o.saveModel(object = ML_gbm, path = pathOut, force = TRUE)
 print(model_path)
 # load the model
@@ -239,7 +247,7 @@ h2o.residual_analysis_plot(ML_gbm,test_data)
 bestMod_tuened <- data.frame(ntrees = ntrees_gbm_optim, maxDepth=max_depth_gbm_optim, R2 = rmse_r2_gbm$R_sq, rmse = rmse_r2_gbm$rmse)
 
 
-h2o.partialPlot(object = ML_gbm, newdata = test_data, cols = c("n_rate2", "p_rate2"))
+h2o.partialPlot(object = ML_gbm, newdata = test_data, cols = c("N_fert","P_fert"))
 
 #the variable importance plot
 par(mar = c(1, 1, 1, 1))#Expand the plot layout pane
@@ -314,8 +322,10 @@ ML_randomForest <- h2o.randomForest(x = predictors,
 h2o.saveModel(object = ML_randomForest, path = pathOut, force = TRUE)
 h2o.residual_analysis_plot(ML_randomForest,test_data)
 
-rmse_r2_randomforest <- data.frame( rmse =h2o.rmse(ML_randomForest, train=TRUE, valid=TRUE),
-                                    R_sq = c(h2o.r2(ML_randomForest, train=TRUE, valid=TRUE)))
+rmse_r2_randomforest <-  data.frame(mae=round(h2o.mae(ML_randomForest, train=TRUE, valid=TRUE), 0),
+                                    rmse = round(h2o.rmse(ML_randomForest, train=TRUE, valid=TRUE), 0),
+                                    R_sq = round(h2o.r2(ML_randomForest, train=TRUE, valid=TRUE), 2))
+
 rmse_r2_randomforest
 
 rf_valid <- test_data
@@ -334,12 +344,15 @@ ggplot(rf_valid, aes(Response, predResponse)) +
 
 #the variable importance plot
 par(mar = c(1, 1, 1, 1))#Expand the plot layout pane
-h2o.varimp_plot(ML_randomForest)
+h2o.varimp_plot(ML_randomForest, num_of_features = 15)
 
+h2o.partialPlot(object = ML_randomForest, newdata = test_data, cols = c("N_fert","P_fert"))
 
 # shap values = the direction of the relationship between our features and target
 # e.g., high vlaues of total rainfall has positive contribution
 h2o.shap_summary_plot(ML_randomForest, test_data)
+
+
 
 
 ### 4. deep learning / ANN ********************************************************
@@ -394,9 +407,11 @@ ML_ANN <- h2o.deeplearning(x = predictors,
 
 h2o.saveModel(object = ML_ANN, path = pathOut, force = TRUE)
 h2o.residual_analysis_plot(ML_ANN,test_data)
+h2o.partialPlot(object = ML_ANN, newdata = test_data, cols = c("N_fert","P_fert"))
 
-rmse_r2_ANN <- data.frame( rmse = h2o.rmse(ML_ANN, train=TRUE, valid=TRUE),
-                           R_sq = c(h2o.r2(ML_ANN, train=TRUE, valid=TRUE)))
+rmse_r2_ANN <- data.frame(mae=round(h2o.mae(ML_ANN, train=TRUE, valid=TRUE), 0),
+                          rmse = h2o.rmse(ML_ANN, train=TRUE, valid=TRUE),
+                          R_sq = c(h2o.r2(ML_ANN, train=TRUE, valid=TRUE)))
 rmse_r2_ANN ## random forest is better 
 
 ANN_valid <- test_data
@@ -414,7 +429,7 @@ ggplot(ANN_valid, aes(blup, predYield)) +
 
 #the variable importance plot
 par(mar = c(1, 1, 1, 1)) #Expand the plot layout pane
-h2o.varimp_plot(ML_ANN)
+h2o.varimp_plot(ML_ANN, num_of_features = 15)
 
 h2o.shap_summary_plot(ML_ANN, test_data)
 
@@ -445,8 +460,5 @@ stack_rf <- h2o.stackedEnsemble(x = predictors,
                                 base_models = list(ML_randomForest, ML_gbm),
                                 metalearner_algorithm = "drf")
 h2o.auc(h2o.performance(stack_rf, test_data))
-
-
-
 
 
