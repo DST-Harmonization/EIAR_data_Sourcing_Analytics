@@ -6,7 +6,6 @@ date: "2024-02-14"
 ---
 
 
-
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
@@ -32,7 +31,15 @@ library(simr)
 ```{r}
 
 wheat <- read.csv("~/shared-data/Data/Wheat/fieldData/wheat_dst_team_shared_v3.csv", header = T, sep = ",", fileEncoding="latin1")
+wheat_NP <- read.csv("~/shared-data/Data/Wheat/fieldData/Wheat_NPrate.csv", header = T, sep = ",", fileEncoding="latin1")
+wheat_NP$source <- paste("NPrate",wheat_NP$Institute, wheat_NP$Center, sep="_")
+wheat_NP$treatment <- paste0("N_",wheat_NP$n_rate2,"_P_",wheat_NP$p_rate2 )
+wheat_NP <- wheat_NP[, colnames(wheat)]
+wheat <- unique(rbind(wheat, wheat_NP))
 length(unique(wheat$unique_id))
+as.data.frame(table(wheat$source))
+write.csv(as.data.frame(table(wheat$source)),"~/shared-data/Data/Wheat/fieldData/intialSource.csv", row.names = FALSE )
+
 ```
 
 See the dimensions of the data
@@ -66,10 +73,10 @@ rmarkdown::paged_table(wheat_sumr, options=NULL)
 From the NA values summary table we have only (17782 - 13709) values of planting and harvesting date observations
 
 ## 3. Data joining and creating combined columns
-
-
 ```{r}
 eth_dist <- geodata::gadm(path = ".", "eth", level = 3) |> st_as_sf()
+wheat$long <- as.numeric(as.character(wheat$long))
+wheat$lat <- as.numeric(as.character(wheat$lat))
 wheat_pts <- terra::vect(wheat, geom = c('long', 'lat'), crs = "epsg:4326") |> st_as_sf()
 dim(wheat_pts)
 wheat_joined <- st_join(wheat_pts, eth_dist) 
@@ -512,6 +519,10 @@ ggplot(aes(y = grain_yield_kgpha, x = NAME_2, fill = as.factor(year)))+
   theme_bw()+
   xlab("Zone")+
   theme(axis.text.x = element_text(size = 14, angle = 15, hjust = 1), strip.text.x = element_text(size = 14))
+
+as.data.frame(table(wheat_filtered$source))
+write.csv(as.data.frame(table(wheat_filtered$source)),"~/shared-data/Data/Wheat/fieldData/filteredSource.csv", row.names = FALSE )
+
 ```
 
 ## 24. Yield Effect
@@ -637,7 +648,7 @@ all_diff_data <- ref_yld_data |> dplyr::inner_join(other_yld_data, by = "trial_i
 
 yield_diff_mean <- unique(yield_diff_mean[, c("trial_id","source", "year","NAME_1","NAME_2","NAME_3", "long2", "lat2","n_rate2", "p_rate2", "k_rate2", "treatment_id","ref_trt","grain_yield_kgpha","blup", "yield_diff")])
 
-saveRDS(yield_diff_mean, "~/shared-data/Data/Wheat/fieldData/yield_diff_blup.rds")
+saveRDS(yield_diff_mean, "~/shared-data/Data/Wheat/fieldData/wheat_modelReady_WLY_NPrateAdded.RDS")
 
 
 
@@ -651,5 +662,4 @@ all_diff_data  |> ggplot(aes(y = blup.x, x = blup.y))+
   theme_bw()
   #facet_wrap(~year)
 ```
-
 
