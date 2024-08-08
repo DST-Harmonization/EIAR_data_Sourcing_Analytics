@@ -1,5 +1,4 @@
 
-
 #################################################################################################################
 # 1. Sourcing required packages -------------------------------------------
 #################################################################################################################
@@ -18,152 +17,92 @@ suppressWarnings(suppressPackageStartupMessages(invisible(lapply(packages_requir
 #################################################################################################################
 # 2. join the soil INS with geo-spatial data for ML
 #################################################################################################################
-## First try if adding the control improves the model
-## create topo- class: ICRISAT to provide information how they are doing it, we have info from CIAT already
-## If not make use of the INS NPK as c-ovariate and model yield  as response function. INS will be aggregated by altitude class and region
-## EDA, Geo-spatila data sourcing + GYGA, ML, is the procedure. 
-
-
-
-## inputDataTrial[inputDataTrial$source=="EIAR_NPrate",] ## get EthioSis and weather data
-
 inputDataTrial <- readRDS("~/shared-data/Data/Maize/fieldData/maize_modelReady.rds")
-soildata_iSDA <- readRDS("~/shared-data/Data/Maize/geoSpatial/geo_4ML_trial/SoilDEM_PointData_trial.RDS")
-soildata_EthSIS <- readRDS("~/shared-data/Data/Maize/geoSpatial/geo_4ML_trial/ethiosis_geo_maize.rds")
+soildata_EthSISN <- readRDS("~/shared-data/Data/Maize/geoSpatial/geo_4ML_trial/ethiosis_extract_maize_new.RDS")
+names(soildata_EthSISN) <- c("ID","B_rf","Ca_rf","Ca_Mg","Ca_sat_rf","CEC_rf","Cu_rf","EC_rf", "Fe_rf","K_rf",
+                             "K_Mg","Mg_rf","Mg_sat_rf","MnAl_rf","N_rf","OM_pct_rf", "P_rf","pH_rf","S_rf",
+                             "Zn_rf","long2","lat2","trial_id")
 weatherdata <- readRDS("~/shared-data/Data/Maize/geoSpatial/geo_4ML_trial/weatherSummaries_trial.RDS")
-weatherdata <- weatherdata[, -c(grep("windSpeed", names(weatherdata)), grep("month8", names(weatherdata)))]
-weatherdata2 <- readRDS("~/shared-data/Data/Maize/geoSpatial/geo_4ML_trial/2023/NP_rateWeatherSummaries_trial.RDS")
-weatherdata2 <- weatherdata2[, names(weatherdata)]
-weatherdata <- rbind(weatherdata, weatherdata2)
+weatherdata <- weatherdata |> dplyr::mutate(NAME_1 = replace(NAME_1, NAME_1 == "Southern Nations, Nationalities", "SNNP"))
+TopoData <- readRDS("~/shared-data/Data/Maize/geoSpatial/geo_4ML_trial/TopoData.RDS")
 
-tids <- unique(soildata_EthSIS$trial_id)
-
-
-dim(inputDataTrial)
 inputDataTrial <- inputDataTrial %>% 
-  dplyr::select(-c(source, year, NAME_1, long2, lat2, grain_yield_kgpha, treatment_id, ref_trt, yield_diff)) %>% 
-  unique()
-dim(inputDataTrial)
-inputDataTrial[inputDataTrial$trial_id == "34.38_9.54_2009_P_calibration NSRC", ]
-
-colnames(inputDataTrial)
-
-
-
-soildata_iSDA <- soildata_iSDA %>% 
-  dplyr::select(-c("country", "NAME_1", "NAME_2","lon","lat")) %>%
-  dplyr::rename(trial_id = ID) %>% 
+  dplyr::select(-c(grain_yield_kgpha, treatment_id, ref_trt, yield_diff)) %>% 
   unique()
 
-topo_data <- soildata_iSDA |> dplyr::select(trial_id, altitude, TPI, TRI) |>
-  distinct(trial_id, .keep_all = TRUE)
-dim(topo_data)
-colnames(topo_data)
+## merge field data and weather data 
+WF <- merge(inputDataTrial,weatherdata, by.x=c("NAME_1", "NAME_2","long2","lat2","year","trial_id"), by.y=c("NAME_1", "NAME_2","longitude","latitude","pyear","ID"), all.x=TRUE )
+unique(WF[is.na(WF$totalRF), ]$trial_id)
 
-soildata_EthSIS <- soildata_EthSIS %>% 
-  dplyr::select(-c(source, NAME_1, NAME_2,NAME_3,long2,lat2, year, 
-                   ref_trt, grain_yield_kgpha, blup, treatment_id, n_rate2, p_rate2,
-                   k_rate2, yield_diff)) %>%
-  distinct(trial_id, .keep_all = TRUE)
-dim(soildata_EthSIS)
-colnames(soildata_EthSIS)
+## add soil EthiSIS data
+SWF <- merge(WF,soildata_EthSISN, by=c("trial_id","long2","lat2"))
+
+## add topography data
+SWFT <- merge(SWF,TopoData, by.x=c("long2","lat2"), by.y=c("lon", "lat"), all.x=TRUE)
+
+## drop Na columns
+maize_ML_data <- SWFT %>% 
+  select_if(~sum(!is.na(.)) > 0)
 
 
-
-## you should test the model accuracy using the soil data fro iSDA and EthiSis and use the better one
-maize_ML_data <- merge(inputDataTrial, soildata_EthSIS, by = "trial_id", all.x=TRUE)
-maize_ML_data[maize_ML_data$trial_id == "34.38_9.54_2009_P_calibration NSRC", ]
-maize_ML_data <- merge(maize_ML_data, topo_data, by = "trial_id", all.x=TRUE)
-
-dim(maize_ML_data)
-colnames(maize_ML_data)
-
-hist(soildata_iSDA$altitude)
-
-weatherdata <- weatherdata %>% 
-  dplyr::select(-c(NAME_1, NAME_2, plantingDate, harvestDate, pyear, latitude, longitude)) %>% 
+### drop weather data beyond month 4, because there are a lot of NA values there 
+maize_ML_data <-maize_ML_data %>% dplyr::select(-c(names(maize_ML_data)[c(grep("_month4", names(maize_ML_data)), grep("_month5", names(maize_ML_data)), 
+                                                                          grep("_month6", names(maize_ML_data)), grep("_month7", names(maize_ML_data)), grep("_month8", names(maize_ML_data)))])) %>%
+  dplyr::select(-c(ID, Cu_rf, EC_rf, Fe_rf)) %>% 
   unique()
-dim(weatherdata)
-colnames(weatherdata)
-names(weatherdata)[1] <- "trial_id"
 
-weatherdata[weatherdata$trial_id == "34.38_9.54_2009_P_calibration NSRC", ]
-
-
-maize_ML_data <- merge(maize_ML_data, weatherdata, by = "trial_id", all.x=TRUE)
-maize_ML_data[maize_ML_data$trial_id == "34.38_9.54_2009_P_calibration NSRC", ]
-
-
-colnames(maize_ML_data)
-maize_ML_data <- unique(maize_ML_data) ## we lost a serious amount of data here
-dim(maize_ML_data)
-unique(maize_ML_data$K_rf)
-unique(maize_ML_data[is.na(maize_ML_data$K_rf), ]$trial_id)
-
-### remove variables with NA values, if we take complete case, because of the difference in growing season there are quite some data points with NA weather data for later omonths 
-maize_ML_data <- maize_ML_data[maize_ML_data$trial_id %in% tids, ]
-
-maize_ML_trial <- maize_ML_data %>% 
-  dplyr::select(-c(names(which(colSums(is.na(maize_ML_data)) > 0)))) %>% 
-  dplyr::mutate_if(is.character, as.factor) 
-
-
-dim(maize_ML_trial)
-colnames(maize_ML_data)
-colnames(maize_ML_trial)
-
-##### create topography and control classes, ...
-## create topo- class: ICRISAT to provide information how they are doing it, we have info from CIAT already
-## for now I made it at step of 250 m altitude difference 
-ds_alt <- maize_ML_trial %>%
-  dplyr::group_by(trial_id) %>%
-  dplyr::summarise(altClass = median(altitude)) %>%
-  mutate(altClass = cut(altClass, c(-Inf, 1750, 2000, 2250, 2500, 2700, 3000, Inf), labels = c("Altclass1", "Altclass2", "Altclass3", "Altclass4", "Altclass5", "Altclass6", "Altclass7")))%>%
-  unique()
-head(ds_alt)
-
-maize_ML_trial <- merge(maize_ML_trial, ds_alt, by="trial_id")
-maize_ML_trial <- maize_ML_trial %>% dplyr::select(-c(trial_id))
+maize_ML_trial <- maize_ML_data %>% dplyr::select(-c(trial_id))
 dim(maize_ML_trial)
 colnames(maize_ML_trial)
 
 
-top_vars <- c("NAME_3", "n_rate2", "p_rate2", "Rainfall_month2", "Tmin_month1","Tmin_month2", "altClass", "totalRF",
-              "Tmin_month3", "Ca_rf", "P_rf", "N_rf","OM_pct_rf",  "pH_rf", "nrRainyDays",
-              "Rainfall_month3", "Rainfall_month1", "K_Mg", "Mg_rf","Tmax_month1", "Tmax_month2", "Tmax_month3","blup")
+top_vars <- c("NAME_3", "n_rate2", "p_rate2", "totalRF", "nrRainyDays", 
+              "Rainfall_month1","Tmax_month1","Tmin_month1",
+              "Rainfall_month2","Tmax_month2","Tmin_month2",
+              "Rainfall_month3","Tmax_month3","Tmin_month3",
+              "B_rf", "Ca_Mg", "CEC_rf","K_rf","K_Mg","Mg_rf",
+              "Mg_sat_rf","MnAl_rf", "N_rf","OM_pct_rf","P_rf",
+              "pH_rf","altitude","slope","TPI", "TRI", "blup") 
+
+top15 <- c("n_rate2", "p_rate2", "totalRF", "nrRainyDays", 
+           "Rainfall_month1","Tmax_month1","Tmin_month1",
+           "Rainfall_month2", "Tmin_month2",
+           "Rainfall_month3","Tmax_month3",
+           "B_rf", "CEC_rf", 
+           "MnAl_rf", "OM_pct_rf",
+           "pH_rf","altitude","slope", "TRI",  "blup") 
+
+
 #################################################################################################################
 # 3. train the ML
 #################################################################################################################
-pathOut <- "/home/jovyan/shared-data/Data/Maize/Intermediate/grainwt"
+pathOut <- "/home/jovyan/shared-data/Data/Maize/Intermediate/SecondRun"
 if (!dir.exists(pathOut)){
   dir.create(file.path(pathOut), recursive = TRUE)
 }
 
-ML_inputData <- maize_ML_trial[, c(top_vars)]
-ML_inputData <- ML_inputData |> unique()
+ML_inputData <- maize_ML_trial[, c(top15)]
+ML_inputData <- ML_inputData |> na.omit() |> unique()
 colnames(ML_inputData)
-# ML_inputData$CLIMATEZONE <- as.factor(ML_inputData$CLIMATEZONE)
-# ML_inputData <-  ML_inputData |> dplyr::select(-c(WLY_dry, WLY_wet)) %>% unique()
 dim(ML_inputData)
 str(ML_inputData)
 colnames(ML_inputData)
 
-names(ML_inputData) <- c("Wereda","N_fert","P_fert","Rainfall_M2", "Tmin_M1","Tmin_M2","AltitudeClass",
-                         "totalRainfall","Tmin_M3","Ca_rf","P_rf","N_rf","OM_pct_rf","pH_rf", "nrRainyDays",
-                         "Rainfall_M3", "Rainfall_M1", "K_Mg","Mg_rf","Tmax_M1","Tmax_M2", "Tmax_M3","blup")          
+names(ML_inputData) <- c("N_fert","P_fert","totalRF","nrRainyDays","Rainfall_M1", 
+                         "Tmax_M1", "Tmin_M1", "Rainfall_M2", "Tmin_M2", 
+                         "Rainfall_M3", "Tmax_M3", "B_rf", "CEC_rf", "MnAl_rf",
+                         "OM_pct_rf", "pH_rf", "altitude","slope","TRI", "blup")
 
 
+dim(ML_inputData)
 response <- "blup"
 predictors <- ML_inputData |> names()
 predictors <- predictors[!predictors %in% c("blup")]
-
-# predictors <- predictors[!predictors %in% c("Ca_rf", "Ca_Mg", "B_rf",  "Mg_sat_rf", "MnAl_rf", "Zn_rf", "Cu_rf","Fe_rf","blup", "NAME_3", "relativeHumid_month2","relativeHumid_month3")]
+predictors <- predictors[!predictors %in% c("Ca_rf", "Ca_Mg", "B_rf",  "Mg_sat_rf", "MnAl_rf", "Zn_rf", "Cu_rf","Fe_rf","blup", "NAME_3", "relativeHumid_month2","relativeHumid_month3")]
 
 ###############################################################################
 ###############################################################################
 ## test the different ML models 
-
-
 # setting up a local h2o cluster
 h2o.init()
 
@@ -171,7 +110,7 @@ h2o.init()
 ML_inputData.h2o <- as.h2o(ML_inputData)
 
 #create a random training-test split of our data ## should be possible to do it by missing one
-ML_inputData_split <- h2o.splitFrame(data = ML_inputData.h2o, ratios = 0.8, seed = 1234)
+ML_inputData_split <- h2o.splitFrame(data = ML_inputData.h2o, ratios = 0.8, seed = 4444)
 training_data <- ML_inputData_split[[1]]
 test_data <- ML_inputData_split[[2]]
 
@@ -198,7 +137,7 @@ grid_gbm <- h2o.grid(
 )
 
 
-saveRDS(grid_gbm, paste(pathOut, "grid_gbm_15vars.rds", sep=""))
+saveRDS(grid_gbm, paste(pathOut, "grid_gbm_allVars.rds", sep=""))
 
 #grid_gbm <- readRDS(paste(pathOut, "grid_gbm.rds", sep=""))
 # Get the best hyper parameters
@@ -238,9 +177,9 @@ rmse_r2_gbm <- data.frame(mae=round(h2o.mae(ML_gbm, train=TRUE, valid=TRUE), 0),
                           rmse = round(h2o.rmse(ML_gbm, train=TRUE, valid=TRUE), 0),
                           R_sq = round(h2o.r2(ML_gbm, train=TRUE, valid=TRUE), 2))
 rmse_r2_gbm
-# mae rmse R_sq
-# train  65   97 1.00
-# valid 208  337 0.97
+#        mae rmse R_sq
+# train  74  102 1.00
+# valid 250  454 0.95
 
 h2o.residual_analysis_plot(ML_gbm,test_data)
 
@@ -251,7 +190,7 @@ h2o.partialPlot(object = ML_gbm, newdata = test_data, cols = c("N_fert","P_fert"
 
 #the variable importance plot
 par(mar = c(1, 1, 1, 1))#Expand the plot layout pane
-h2o_varimp <- h2o.varimp_plot(ML_gbm, num_of_features = 15)
+h2o_varimp <- h2o.varimp_plot(ML_gbm, num_of_features = 20)
 
 
 
@@ -327,6 +266,9 @@ rmse_r2_randomforest <-  data.frame(mae=round(h2o.mae(ML_randomForest, train=TRU
                                     R_sq = round(h2o.r2(ML_randomForest, train=TRUE, valid=TRUE), 2))
 
 rmse_r2_randomforest
+#       mae rmse R_sq
+# train 660  865 0.82
+# valid 665  856 0.82
 
 rf_valid <- test_data
 rf_valid$predResponse <- h2o.predict(object = ML_randomForest, newdata = test_data)
@@ -344,7 +286,7 @@ ggplot(rf_valid, aes(Response, predResponse)) +
 
 #the variable importance plot
 par(mar = c(1, 1, 1, 1))#Expand the plot layout pane
-h2o.varimp_plot(ML_randomForest, num_of_features = 15)
+h2o.varimp_plot(ML_randomForest, num_of_features = 20)
 
 h2o.partialPlot(object = ML_randomForest, newdata = test_data, cols = c("N_fert","P_fert"))
 
@@ -432,33 +374,3 @@ par(mar = c(1, 1, 1, 1)) #Expand the plot layout pane
 h2o.varimp_plot(ML_ANN, num_of_features = 15)
 
 h2o.shap_summary_plot(ML_ANN, test_data)
-
-#####################################################################
-
-# Train a stacked ensemble using the default metalearner algorithm
-stack <- h2o.stackedEnsemble(x = predictors,
-                             y = response,
-                             training_frame = training_data,
-                             base_models = list(ML_randomForest, ML_gbm))
-
-h2o.auc(h2o.performance(stack, test_data))
-
-
-
-#gbm
-stack_gbm <- h2o.stackedEnsemble(x = predictors,
-                                 y = response,
-                                 training_frame = training_data,
-                                 base_models = list(ML_randomForest, ML_gbm),
-                                 metalearner_algorithm = "gbm")
-h2o.auc(h2o.performance(stack_gbm, test_data))
-
-#rf
-stack_rf <- h2o.stackedEnsemble(x = predictors,
-                                y = response,
-                                training_frame = training_data,
-                                base_models = list(ML_randomForest, ML_gbm),
-                                metalearner_algorithm = "drf")
-h2o.auc(h2o.performance(stack_rf, test_data))
-
-

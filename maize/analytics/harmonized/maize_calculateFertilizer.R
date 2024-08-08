@@ -1,3 +1,4 @@
+
 ########################################################
 #required packages
 ########################################################
@@ -13,15 +14,10 @@ invisible(lapply(packages_required, library, character.only = TRUE))
 ## define pathout and read data
 ########################################################
 pathOut <- "~/shared-data/Data/Maize/result/geoSpatial/"
+above <- readRDS("~/shared-data/Data/Maize/result/geoSpatial/final_df_maize_new_above.rds")
+normal <- readRDS("~/shared-data/Data/Maize/result/geoSpatial/final_df_maize_new_normal.rds")
+below <- readRDS("~/shared-data/Data/Maize/result/geoSpatial/final_df_maize_new_below.rds")
 
-## TODO the climate scenarios need to be smoothen up to avoid pockets of totally 
-#different climate scenario in neighboring pixels
-
-
-#read prediction raster files
-below <- readRDS("~/shared-data/Data/Maize/result/geoSpatial/final_df_275_sp_below.rds")
-normal <- readRDS("~/shared-data/Data/Maize/result/geoSpatial/final_df_275_sp_normal.rds")
-above <- readRDS("~/shared-data/Data/Maize/result/geoSpatial/final_df_275_sp_above.rds")
 
 #check the dimensions
 dim(below) == dim(normal)
@@ -66,39 +62,38 @@ below_result <- foreach(i=1:length(unique(dom_below$location)), .packages = c('t
   NUE_PUE_below <- calculate_NPUE(lodData, col1="yield.0.0", col2="yield.240.50")
 }
 NUE_PUE_below <- dplyr::bind_rows(below_result)
-saveRDS(NUE_PUE_below, "~/shared-data/Data/Maize/result/geoSpatial/NUE_PUE_below.RDS")
+saveRDS(NUE_PUE_below, "~/shared-data/Data/Maize/result/geoSpatial/NUE_PUE_below_new.RDS")
 stopCluster(cl)
 
-#NUE_PUE_below <- readRDS("~/shared-data/Data/Maize/result/geoSpatial/NUE_PUE_below.RDS")
+
 ## above
 above_result <- foreach(i=1:length(unique(dom_above$location)), .packages = c('terra', 'plyr', 'stringr','tidyr', 'tidyverse', 'sf')) %dopar% {
   locData <- dom_above[dom_above$location == unique(dom_above$location)[i], ]
   NUE_PUE_above1 <- calculate_NPUE(locData, col1="yield.0.0", col2="yield.240.50")
 }
 NUE_PUE_above <- dplyr::bind_rows(above_result)
-saveRDS(NUE_PUE_above, "~/shared-data/Data/Maize/result/geoSpatial/NUE_PUE_above.RDS")
+saveRDS(NUE_PUE_above, "~/shared-data/Data/Maize/result/geoSpatial/NUE_PUE_above_new.RDS")
 
-#NUE_PUE_above <- readRDS("~/shared-data/Data/Maize/result/geoSpatial/NUE_PUE_above.RDS")
+
 ## normal
 normal_result <- foreach(i=1:length(unique(dom_normal$location)), .packages = c('terra', 'plyr', 'stringr','tidyr', 'tidyverse', 'sf')) %dopar% {
   locData <- dom_normal[dom_normal$location == unique(dom_normal$location)[i], ]
   NUE_PUE_normal1 <- calculate_NPUE(locData, col1="yield.0.0", col2="yield.240.50")
 }
 NUE_PUE_normal <- dplyr::bind_rows(normal_result)
-saveRDS(NUE_PUE_normal, "~/shared-data/Data/Maize/result/geoSpatial/NUE_PUE_normal.RDS")
-NUE_PUE_normal <- readRDS("~/shared-data/Data/Maize/result/geoSpatial/NUE_PUE_normal.RDS")
-
+saveRDS(NUE_PUE_normal, "~/shared-data/Data/Maize/result/geoSpatial/NUE_PUE_normal_new.RDS")
 
 
 ########################################################
-NUE_PUE_below <- readRDS("~/shared-data/Data/Maize/result/geoSpatial/NUE_PUE_below.RDS")
-NUE_PUE_above <- readRDS("~/shared-data/Data/Maize/result/geoSpatial/NUE_PUE_above.RDS")
-NUE_PUE_normal <- readRDS("~/shared-data/Data/Maize/result/geoSpatial/NUE_PUE_normal.RDS")
+NUE_PUE_below <- readRDS("~/shared-data/Data/Maize/result/geoSpatial/NUE_PUE_below_new.RDS")
+NUE_PUE_above <- readRDS("~/shared-data/Data/Maize/result/geoSpatial/NUE_PUE_above_new.RDS")
+NUE_PUE_normal <- readRDS("~/shared-data/Data/Maize/result/geoSpatial/NUE_PUE_normal_new.RDS")
 
 
 NUE_PUE_below$location <- paste(NUE_PUE_below$x, NUE_PUE_below$y, sep="_")
 NUE_PUE_above$location <- paste(NUE_PUE_above$x, NUE_PUE_above$y, sep="_")
 NUE_PUE_normal$location <- paste(NUE_PUE_normal$x, NUE_PUE_normal$y, sep="_")
+
 
 ###########################################################################
 # covert to urea and TSP with steps ...
@@ -132,22 +127,9 @@ NUE_PUE_normal <- NUE_PUE_normal[NUE_PUE_normal$NPratio >= 1.2, ]
 
 summary(NUE_PUE_below$NPratio)
 
-
-NUE_PUE_below <- NUE_PUE_below[NUE_PUE_below$n > 50, ] ## there will be no location in the maize belt growing maize with no fertilizer
-NUE_PUE_above <- NUE_PUE_above[NUE_PUE_above$n > 50, ]
-NUE_PUE_normal <- NUE_PUE_normal[NUE_PUE_normal$n > 50, ]
-
-
-# 
-# ll <- NUE_PUE_below[NUE_PUE_below$location == "38.4114423381926_7.59845147822936", ]
-# llu <- ll[ll$nue > quantile(ll$nue, probs=0.90) & ll$pue > quantile(ll$pue, probs=0.90), ]
-# lluy <- llu[llu$yield == max(llu$yield), ]
-# K <- lluy[lluy$n == min(lluy$n),]
-
-
 Loc_below <- NUE_PUE_below %>% 
   dplyr::group_by(location) %>% 
-  dplyr::filter(nue > quantile(nue, probs=0.90) & pue > quantile(pue, probs=0.90)) %>% 
+  dplyr::filter(nue > quantile(nue, probs=0.80) & pue > quantile(pue, probs=0.80)) %>% 
   dplyr::filter(yield == max(yield)) %>% 
   dplyr::filter(n == min(n)) %>%
   dplyr::filter(p == min(p)) %>%
@@ -156,7 +138,7 @@ Loc_below <- NUE_PUE_below %>%
 
 Loc_above <- NUE_PUE_above %>% 
   dplyr::group_by(location) %>% 
-  dplyr::filter(nue > quantile(nue, probs=0.90) & pue > quantile(pue, probs=0.90)) %>% 
+  dplyr::filter(nue > quantile(nue, probs=0.80) & pue > quantile(pue, probs=0.80)) %>% 
   dplyr::filter(yield == max(yield)) %>% 
   dplyr::filter(n == min(n)) %>% 
   dplyr::filter(p == min(p)) %>% 
@@ -165,7 +147,7 @@ Loc_above <- NUE_PUE_above %>%
 
 Loc_normal <- NUE_PUE_normal %>% 
   dplyr::group_by(location) %>% 
-  dplyr::filter(nue > quantile(nue, probs=0.90) & pue > quantile(pue, probs=0.90)) %>% 
+  dplyr::filter(nue > quantile(nue, probs=0.80) & pue > quantile(pue, probs=0.80)) %>% 
   dplyr::filter(yield == max(yield)) %>% 
   dplyr::filter(n == min(n)) %>% 
   dplyr::filter(p == min(p)) %>% 
@@ -182,33 +164,14 @@ location_all$TSP <- round(location_all$p/0.205, digits=0) ## assuming the prate 
 
 quantile(location_all$n, probs=seq(0, 1, 0.01))
 
-saveRDS(location_all, "~/shared-data/Scripts/Maize/responseFunction/outputs/location_all_point_rate_P2O5.RDS")
+saveRDS(location_all, "~/shared-data/Scripts/Maize/responseFunction/outputs/location_all_point_rate_P2O5_new.RDS")
 
-location_all <- readRDS("~/shared-data/Scripts/Maize/responseFunction/outputs/location_all_point_rate_P2O5.RDS")
+location_all <- readRDS("~/shared-data/Scripts/Maize/responseFunction/outputs/location_all_point_rate_P2O5_new.RDS")
 
 quantile(location_all$n, probs=seq(0,1,0.01))
 quantile(location_all$p, probs=seq(0,1,0.01))
 
 
-# ## check few locations
-# countryShp <- geodata::gadm("Ethiopia", level = 3, path='.')
-# 
-dd2 <- raster::extract(countryShp, location_all[, c("x", "y")])[, c("NAME_1", "NAME_2", "NAME_3")]
-location_all$NAME_1 <- dd2$NAME_1
-location_all$NAME_2 <- dd2$NAME_2
-location_all$NAME_3 <- dd2$NAME_3
-
-head(location_all)
-
-Misraq_Shewa <- location_all[location_all$NAME_2 == "Misraq Shewa",]
-Adami_Tulu <- Misraq_Shewa[Misraq_Shewa$NAME_3 == "Adami Tulu Jido Kombolcha", ]
-unique(Adami_Tulu$n)
-Adami_Tulu[order(Adami_Tulu$x, Adami_Tulu$y), ]
-
-Adami_Tulu[Adami_Tulu$location == "38.4114423381926_7.59845147822936", ]
-
-# 
-# #TODO
 
 ## aggregate by woreda using frequent urea and TSP rate / max yield 
 #clust_maize <- terra::vect("~/shared-data/Data/Maize/geoSpatial/domain_cluster/Maize_cluster_after_process.shp") |>
@@ -297,5 +260,37 @@ for(i in 1:length(columns)){
   terra::writeRaster(rast, paste(path_result, paste0(columns[i], "_2", ".tif"), sep = "/"), 
                      overwrite = T)
 }
+
+
+
+## testing
+countryShp <- geodata::gadm("Ethiopia", level = 3, path='.')# 
+abovexy <- unique(NUE_PUE_above[, c("x", "y")])
+dd2 <- raster::extract(countryShp, abovexy)[, c("NAME_1", "NAME_2", "NAME_3")]
+abovexy$NAME_1 <- dd2$NAME_1
+abovexy$NAME_2 <- dd2$NAME_2
+abovexy$NAME_3 <- dd2$NAME_3
+abovexy[abovexy$NAME_3 == "Dera", ]
+abovexy$location <- paste(abovexy$x, abovexy$y, sep="_")
+
+Dera <- NUE_PUE_above[NUE_PUE_above$location %in% unique(abovexy$location), ]
+unique(Dera$NPratio)
+unique(Dera$n)
+unique(Dera$p)
+
+ggplot(Dera, aes(n, yield)) +
+  geom_point() 
+ggplot(Dera, aes(factor(n_rate2), blup)) +
+  geom_boxplot() 
+ggplot(Dera, aes(factor(n_rate2),  nue)) +
+  geom_boxplot()
+
+ggplot(Dera, aes(p_rate2, blup)) +
+  geom_point() 
+ggplot(Dera, aes(factor(p_rate2),  nue)) +
+  geom_boxplot()
+
+
+
 
 
