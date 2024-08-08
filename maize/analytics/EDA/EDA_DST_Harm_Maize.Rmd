@@ -1,12 +1,13 @@
 ---
-title: "Maize EDA"
-output: html_document
-author: "CIMMYT"
+  title: "Exploratory Data Analysis - DST Harmonization Maize Data"
+author: "DST tech team"
 date: "2024-02-14"
+output: html_document
 ---
-
-
-```{r setup, include=FALSE}
+  
+  
+  
+  ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
@@ -30,9 +31,16 @@ library(simr)
 
 ```{r}
 Maize <- read.csv("~/shared-data/Data/Maize/fieldData/maize_dst_team_shared_v2.csv", header = T, sep = ",", fileEncoding="latin1")
+NPrateData <- read.csv("~/shared-data/Data/Maize/fieldData/Maize_NPrate.csv")
+NPrateData <- NPrateData %>% 
+  dplyr::select(-c(Planting.date, Harvesting.date, X))
+NPrateData$source <- "EIAR_NPrate"
+Maize <- rbind(Maize, NPrateData)
 names(Maize)
 length(unique(Maize$unique_id))
 dim(Maize)
+as.data.frame(table(Maize$source))
+write.csv(as.data.frame(table(Maize$source)),"~/shared-data/Data/Maize/fieldData/intialSource.csv", row.names = FALSE )
 ```
 
 
@@ -95,6 +103,7 @@ tids_moreids[tids_moreids$n > 1, ]
 
 Maize_joined1 <- Maize_joined[Maize_joined$trial_id %in% tids_moreids$trial_id, ] 
 dim(Maize_joined)
+dim(Maize_joined1)
 Maize_joined <- Maize_joined %>% dplyr::select(-c(unique_id)) %>% unique()
 dim(Maize_joined)
 length(unique(Maize_joined$trial_id))
@@ -103,8 +112,8 @@ length(unique(Maize_joined$trial_id2))
 
 ```{r}
 Maize_joined <- Maize_joined |> dplyr::mutate(NAME_1 = replace(NAME_1, NAME_1 == "Southern Nations, Nationalities", "SNNP"))|> dplyr::mutate(n_rate2 = round_any(n_kgpha, 5), p_rate2 = round_any(p_kgpha, 2), k_rate2 = round_any(k_kgpha, 10)) |> dplyr::mutate(treatment_id = 
-paste(n_rate2, p_rate2, k_rate2, sep = "_")) |> dplyr::mutate(location = 
-paste(NAME_2, NAME_3, sep = "_"))
+                                                                                                                                                                                                                                                                    paste(n_rate2, p_rate2, k_rate2, sep = "_")) |> dplyr::mutate(location = 
+                                                                                                                                                                                                                                                                                                                                    paste(NAME_2, NAME_3, sep = "_"))
 dim(Maize_joined)
 ```
 ## 5. remove points with < 500 kg/ha, removes 192 data points
@@ -114,7 +123,7 @@ unique(Maize_joined[Maize_joined$grain_yield_kgpha < 500, ]$treatment_id)
 
 dim(Maize_joined %>% dplyr::filter(grain_yield_kgpha < 500, ))
 Maize_joined <- Maize_joined %>% dplyr::filter(grain_yield_kgpha > 500, )
-
+length(unique(Maize_joined$trial_id))
 ```
 
 
@@ -158,12 +167,15 @@ Maize_joined |> ggplot(aes(x = source, y = grain_yield_kgpha, fill = source))+
 ```
 ## 8. Idenitfy observations with yield values > 12 ton/ha and SG 2000
 ```{r}
-dim(Maize_joined)
-sg_2000 <- Maize_joined |> dplyr::filter(source == "SG 2000")
-dim(sg_2000)
+length(unique(Maize_joined$trial_id))
 yld_gr_7k <- Maize_joined |> dplyr::filter(grain_yield_kgpha > 12000)
-Maize_filtered <- Maize_joined |> dplyr::filter(source != "SG 2000" & grain_yield_kgpha <= 12000)
 dim(yld_gr_7k)
+dim(Maize_joined)
+Maize_filtered <- Maize_joined |> dplyr::filter(grain_yield_kgpha <= 12000)
+dim(Maize_filtered)
+sg_2000 <- Maize_filtered |> dplyr::filter(source == "SG 2000")
+dim(sg_2000)
+Maize_filtered <- Maize_filtered |> dplyr::filter(source != "SG 2000")
 dim(Maize_filtered)
 ```
 ## 9. View the summary of n,p,k,grain_yield
@@ -224,27 +236,31 @@ rmarkdown::paged_table(obs_src_trid, options=NULL)
 
 ## 15. Trials with only one data points (lat, long, year and source)
 ```{r fig.height= 7}
+nrow(Maize_filtered)
 few_observs <- Maize_filtered |> dplyr::group_by(trial_id) |> dplyr::summarise(n = n()) |> dplyr::filter(n == 1)
+dim(few_observs)
 Maize_few_observs <- Maize_filtered |> dplyr::filter((trial_id %in% few_observs$trial_id))
+dim(Maize_few_observs)
+length(unique(Maize_few_observs$trial_id))
 Maize_few_observs |> ggplot(aes(x = source, y = grain_yield_kgpha, fill = source))+
   geom_point()+
   facet_wrap(~year)+
   theme_bw()+
   theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 8), legend.position = 'none', strip.text.x = element_text(size = 12))
-```
-
-```{r}
 dim(Maize_few_observs)
 dim(Maize_filtered)
+
 ```
 
 
 ## 16. Excluding data flaggged to be checked 
 ```{r warning=FALSE}
-few_obs_data <- Maize_filtered |> dplyr::filter(trial_id %in% few_observs$trial_id)
-
+few_obs_data <- Maize_filtered |> dplyr::filter(trial_id %in% few_observs$trial_id) %>% unique()
+Maize_filtered <- Maize_filtered |> dplyr::filter(!(trial_id %in% few_obs_data$trial_id))
+dim(Maize_filtered)
+length(unique(Maize_filtered$trial_id))
 few_obs_data$comment <- "only one observation per trial"
-yld_gr_7k$comment <- "greater than 5000 kg/ha"
+yld_gr_7k$comment <- "greater than 12000 kg/ha"
 sg_2000$comment <- "SG 2000 data" 
 flagged_data <- rbind(sg_2000, yld_gr_7k, few_obs_data)
 dim(flagged_data)
@@ -252,21 +268,17 @@ dim(flagged_data)
 #write.csv(flagged_data, "./EIAR_toCheck/flagged_data.csv", col.names = T, row.names = F)
 ```
 
-```{r}
-### the SG 2000 and yield > 5 t/ha are already removed above
-Maize_filtered <- Maize_filtered |> dplyr::filter(!(trial_id %in% flagged_data$trial_id))
-dim(Maize_filtered)
-```
 
 
 ## 17. ISFM treatments
- 407 trial IDs, from these we are excluding the treatments with organic addition: this drops ~ 195 points
+407 trial IDs, from these we are excluding the treatments with organic addition: this drops ~ 111 points
 ```{r}
 Maize_filtered$index <- c(1:nrow(Maize_filtered))
 orgIndex <- grep("Org", Maize_filtered$treatment)
 orgdata <- droplevels(Maize_filtered[Maize_filtered$index %in% orgIndex, ])
 Maize_filtered <- droplevels(Maize_filtered[!Maize_filtered$index %in% orgIndex, ])
 dim(Maize_filtered)
+length(unique(Maize_filtered$trial_id))
 ```
 ## 18. same yield for several tereatments within a trial
 Let's check the trials that have the same yield for different treatments in a trial. It seems a rep mean yield is 
@@ -314,11 +326,14 @@ rmarkdown::paged_table(obs_reg_trt, options=NULL)
 
 ```{r, fig.width = 8}
 Maize_filtered |>
-ggplot(aes(y = grain_yield_kgpha, fill = NAME_1))+
-  geom_boxplot(width = 0.2, outlier.colour = 'red')+
+  ggplot(aes(x= NAME_1, y = grain_yield_kgpha, fill = NAME_1))+
+  geom_boxplot(outlier.colour = 'red')+
+  xlab("Regions") + ylab("Maize yield [kg/ha]")+
   theme_bw()+
-  theme(axis.text.x = element_blank(), legend.position = "right")+
-   guides(fill = guide_legend(nrow = 4))
+  theme(axis.text.x = element_text(angle = 15, hjust = 1, size = 12), 
+        axis.text.y = element_text(size = 12),
+        axis.title = element_text(size=14), legend.position = "none")+
+  guides(fill = guide_legend(nrow = 4))
 ```
 
 
@@ -331,12 +346,12 @@ rmarkdown::paged_table(avg_yld_zone, options=NULL)
 Within and between zone and region Yield difference
 ```{r}
 Maize_filtered |> 
-ggplot(aes(y = grain_yield_kgpha, fill = NAME_2))+
+  ggplot(aes(y = grain_yield_kgpha, fill = NAME_2))+
   geom_boxplot(width = 0.2, outlier.colour = 'red')+
   facet_wrap(~NAME_1)+
   theme_bw()+
   theme(axis.text.x = element_blank(), legend.position = "none")+
-   guides(fill = guide_legend(nrow = 4))
+  guides(fill = guide_legend(nrow = 4))
 ```
 
 The average yield by district
@@ -377,16 +392,16 @@ Maize_filtered2 <- Maize_filtered |>
 tmap_mode("view")
 tm_shape(eth)+
   tm_borders(col = "black") +
-tm_shape(eth_reg) +
+  tm_shape(eth_reg) +
   tm_borders(col = "gray")+
-tm_shape(Maize_filtered2)+
+  tm_shape(Maize_filtered2)+
   tm_bubbles(col = "grain_yield_kgpha",
-          title.col="Grain Yield (kg/ha)", 
-          popup.vars=c("Zone"="NAME_2","DIstrict"="NAME_3",
-                       "treatment"="treatment_id",
-                       "Grain Yield"="grain_yield_kgpha", 
-                       "Trial ID"="trial_id"),
-          popup.format=list(grain_yield_kgpha=list(digits=2))) 
+             title.col="Grain Yield (kg/ha)", 
+             popup.vars=c("Zone"="NAME_2","DIstrict"="NAME_3",
+                          "treatment"="treatment_id",
+                          "Grain Yield"="grain_yield_kgpha", 
+                          "Trial ID"="trial_id"),
+             popup.format=list(grain_yield_kgpha=list(digits=2))) 
 ```
 
 From the above map there is no spatial pattern of grain yield.
@@ -409,7 +424,7 @@ Maize_filtered |>
 It can help to understand regions with high baseline yield
 ```{r}
 Maize_filtered |> dplyr::filter(treatment_id == "0_0_0") |>
-ggplot(aes(y = grain_yield_kgpha, x = year, fill = as.factor(year)))+
+  ggplot(aes(y = grain_yield_kgpha, x = year, fill = as.factor(year)))+
   geom_boxplot()+
   ylab("yield")+
   facet_wrap(~NAME_1)+
@@ -431,20 +446,25 @@ for(i in 1:length(unique_tr_id)){
   max_k <- max(unique_tr_yld$k_rate2)
   unique_tr_yld2 <- unique_tr_yld |> dplyr::filter(n_rate2 == max_n &  p_rate2 == max_p & k_rate2 == max_k)
   if(nrow(unique_tr_yld2) == 0){
-      unique_tr_yld2 <- unique_tr_yld |> dplyr::filter(n_rate2 == max_n &  p_rate2 == max_p)
+    unique_tr_yld2 <- unique_tr_yld |> dplyr::filter(n_rate2 == max_n &  p_rate2 == max_p)
   } 
   if(nrow(unique_tr_yld2) == 0){
-      unique_tr_yld2 <- unique_tr_yld |> dplyr::filter(n_rate2 == max_n)
+    unique_tr_yld2 <- unique_tr_yld |> dplyr::filter(n_rate2 == max_n)
   }
   if(nrow(unique_tr_yld2) > 1){
-      ref_yld <- median(unique_tr_yld2$grain_yield_kgpha)
+    ref_yld <- median(unique_tr_yld2$grain_yield_kgpha)
   }else{
-      ref_yld <- unique_tr_yld2$grain_yield_kgpha
+    ref_yld <- unique_tr_yld2$grain_yield_kgpha
   }
-unique_tr_yld <- unique_tr_yld |> dplyr::mutate(yield_diff = ref_yld - grain_yield_kgpha)
-yield_diff_mean <- rbind(yield_diff_mean, unique_tr_yld)
+  unique_tr_yld <- unique_tr_yld |> dplyr::mutate(yield_diff = ref_yld - grain_yield_kgpha)
+  yield_diff_mean <- rbind(yield_diff_mean, unique_tr_yld)
 }
 saveRDS(yield_diff_mean, "~/shared-data/Data/Maize/fieldData/yield_diff.rds")
+
+as.data.frame(table(Maize_filtered$source))
+write.csv(as.data.frame(table(Maize_filtered$source)),"~/shared-data/Data/Maize/fieldData/FilteredSource.csv", row.names = FALSE )
+
+
 ```
 
 Scatter plot of the yield difference: there are quite some negative yield effects in the data
@@ -456,13 +476,14 @@ all_diff_data <- ref_yld_data |> dplyr::inner_join(other_yld_data, by = "trial_i
 
 all_diff_data  |> ggplot(aes(y = grain_yield_kgpha.x, x = grain_yield_kgpha.y))+
   geom_point()+
-  ylab("reference yield")+
-  xlab("other treatements yield")+
+  ylab("Reference yield")+
+  xlab("Other treatements yield")+
   geom_abline(intercept = 0, slope = 1, color = 'blue')+
   xlim(0, 12000)+
   ylim(0, 12000)+
-  theme_bw()
-  #facet_wrap(~year)
+  theme_bw()+
+  theme(plot.title = element_text(hjust = 0.5), axis.text = element_text(size=12))
+#facet_wrap(~year)
 ```
 
 ## 25. Linear mixed effects model to reduce the ranomd noise in the data
@@ -515,18 +536,18 @@ for(i in 1:length(unique_tr_id)){
   max_k <- max(unique_tr_yld$k_rate2)
   unique_tr_yld2 <- unique_tr_yld |> dplyr::filter(n_rate2 == max_n &  p_rate2 == max_p & k_rate2 == max_k)
   if(nrow(unique_tr_yld2) == 0){
-      unique_tr_yld2 <- unique_tr_yld |> dplyr::filter(n_rate2 == max_n &  p_rate2 == max_p)
+    unique_tr_yld2 <- unique_tr_yld |> dplyr::filter(n_rate2 == max_n &  p_rate2 == max_p)
   } 
   if(nrow(unique_tr_yld2) == 0){
-      unique_tr_yld2 <- unique_tr_yld |> dplyr::filter(n_rate2 == max_n)
+    unique_tr_yld2 <- unique_tr_yld |> dplyr::filter(n_rate2 == max_n)
   }
   if(nrow(unique_tr_yld2) > 1){
-      ref_yld <- median(unique_tr_yld2$blup)
+    ref_yld <- median(unique_tr_yld2$blup)
   }else{
-      ref_yld <- unique_tr_yld2$blup
+    ref_yld <- unique_tr_yld2$blup
   }
-unique_tr_yld <- unique_tr_yld |> dplyr::mutate(yield_diff = ref_yld - blup)
-yield_diff_mean <- rbind(yield_diff_mean, unique_tr_yld)
+  unique_tr_yld <- unique_tr_yld |> dplyr::mutate(yield_diff = ref_yld - blup)
+  yield_diff_mean <- rbind(yield_diff_mean, unique_tr_yld)
 }
 
 ```
@@ -549,9 +570,9 @@ all_diff_data  |> ggplot(aes(y = blup.x, x = blup.y))+
   ylab("reference yield")+
   xlab("other treatements yield")+
   geom_abline(intercept = 0, slope = 1, color = 'blue')+
-  xlim(0, 5000)+
-  ylim(0, 5000)+
-  theme_bw()
-  #facet_wrap(~year)
+  xlim(800, 12000)+
+  ylim(800, 12000)+
+  theme_bw()+
+  theme(plot.title = element_text(hjust = 0.5), axis.text = element_text(size=12))
+#facet_wrap(~year)
 ```
-
