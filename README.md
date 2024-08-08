@@ -1,4 +1,4 @@
-The implementation of modeling for every is done using script under respective folders in the git link.
+The implementation of modeling for every crop is done using script under respective folders in the git link.
 An example using maize crop …
 1. conduct Exploratory data analysis using the RMD file in 
   DST-Harmonization/EIAR_data_Sourcing/maize/analytics/EDA/
