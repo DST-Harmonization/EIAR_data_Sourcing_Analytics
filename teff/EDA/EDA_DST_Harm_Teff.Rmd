@@ -33,8 +33,19 @@ library(simr)
 ### Reads the Tef dataset from a CSV file, specifying that the first row contains headers, and sets the file encoding to Latin1.
 
 ```{r}
+# Tef <- read.csv("~/shared-data/Data/Tef/fieldData/teff_dst_team_shared_v1.csv", header = T, sep = ",", fileEncoding="latin1")
+# length(unique(Tef$unique_id))
+
 Tef <- read.csv("~/shared-data/Data/Tef/fieldData/teff_dst_team_shared_v1.csv", header = T, sep = ",", fileEncoding="latin1")
+nprate <- read.csv("~/shared-data/Data/Tef/fieldData/TefNPrate_July24.csv")
+TefNPrate_AdetJuly24 <- read.csv("~/shared-data/Data/Tef/fieldData/TefNPrate_AdetJuly24.csv")
+nprate <- nprate[, colnames(Tef)]
+nprateAdet <- TefNPrate_AdetJuly24[, colnames(Tef)]
+Tef <- Tef %>% rbind(nprate) %>% unique()
+Tef <- Tef %>% rbind(nprateAdet) %>% unique()
+
 length(unique(Tef$unique_id))
+
 ```
 
 ### Displays the number of rows and columns in the Tef dataset.
