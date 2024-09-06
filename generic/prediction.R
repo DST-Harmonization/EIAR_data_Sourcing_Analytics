@@ -59,17 +59,31 @@ predict_NPKY <- function(scenario, crop, nstart, nend, ninterval,pstart, pend,
   plot(valid_zone)
   #read prediction raster
   if(scenario == "normal"){
-    pred_stack <- rast(paste("~/shared-data/Data", crop, "geoSpatial/geo_4ML_AOI/NPrate/scenario_normal.tif", sep = "/"))|>
-      terra::crop(valid_zone) |> terra::mask(valid_zone) 
+    if(crop=="Wheat"){
+      pred_stack <- rast(paste("~/shared-data/Data", crop, "geoSpatial/geo_4ML_AOI/NPrate/scenario_normal.tif", sep = "/"))|>
+        terra::crop(valid_zone) |> terra::mask(valid_zone)
+    }else{
+      pred_stack <- rast(paste("~/shared-data/Data", crop, "geoSpatial/geo_4ML_AOI/scenario_normal.tif", sep = "/"))|>
+        terra::crop(valid_zone) |> terra::mask(valid_zone)
+    } 
   }else if(scenario == "above"){
-    pred_stack <- rast(paste("~/shared-data/Data", crop, "geoSpatial/geo_4ML_AOI/NPrate/scenario_above.tif", sep = "/")) |>
-      terra::crop(valid_zone) |> terra::mask(valid_zone)  
-  }else if(scenario == "below"){
-    pred_stack_soil <- rast(paste("~/shared-data/Data", crop, "geoSpatial/geo_4ML_AOI/NPrate/scenario_below_soilDEM.tif", sep = "/")) |>
-      terra::crop(valid_zone) |> terra::mask(valid_zone)  
-    pred_stack_weather <- rast(paste("~/shared-data/Data", crop, "geoSpatial/geo_4ML_AOI/NPrate/scenario_below_weather.tif", sep = "/")) |>
+    if(crop=="Wheat"){ pred_stack <- rast(paste("~/shared-data/Data", crop, "geoSpatial/geo_4ML_AOI/NPrate/scenario_above.tif", sep = "/")) |>
       terra::crop(valid_zone) |> terra::mask(valid_zone) 
-    pred_stack <- c(pred_stack_soil, pred_stack_weather)
+    }else{
+      pred_stack <- rast(paste("~/shared-data/Data", crop, "geoSpatial/geo_4ML_AOI/scenario_above.tif", sep = "/")) |>
+        terra::crop(valid_zone) |> terra::mask(valid_zone) 
+    }
+  }else if(scenario == "below"){
+    if(crop=="Wheat"){
+      pred_stack_soil <- rast(paste("~/shared-data/Data", crop, "geoSpatial/geo_4ML_AOI/NPrate/scenario_below_soilDEM.tif", sep = "/")) |>
+        terra::crop(valid_zone) |> terra::mask(valid_zone)  
+      pred_stack_weather <- rast(paste("~/shared-data/Data", crop, "geoSpatial/geo_4ML_AOI/NPrate/scenario_below_weather.tif", sep = "/")) |>
+        terra::crop(valid_zone) |> terra::mask(valid_zone) 
+      pred_stack <- c(pred_stack_soil, pred_stack_weather)
+    }else{
+      pred_stack <- rast(paste("~/shared-data/Data", crop, "geoSpatial/geo_4ML_AOI/scenario_below.tif", sep = "/")) |>
+        terra::crop(valid_zone) |> terra::mask(valid_zone)  
+    }
   }else{
     print("Enter valid prediction scenario")
   }
