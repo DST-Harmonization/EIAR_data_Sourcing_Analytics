@@ -15,7 +15,8 @@ if(any(installed_packages == FALSE)){
 suppressWarnings(suppressPackageStartupMessages(invisible(lapply(packages_required, library, character.only = TRUE))))
 
 #################################################################################################################
-# 2. join the soil INS with geo-spatial data for ML
+# 2. join the yield, soil, weather and topogrpahy data to train machine learning model
+## the path to read these data should match the path in you r computer where you copy these layers
 #################################################################################################################
 inputDataTrial <- readRDS("~/shared-data/Data/Maize/fieldData/maize_modelReady.rds")
 soildata_EthSISN <- readRDS("~/shared-data/Data/Maize/geoSpatial/geo_4ML_trial/ethiosis_extract_maize_new.RDS")
@@ -76,7 +77,7 @@ top15 <- c("n_rate2", "p_rate2", "totalRF", "nrRainyDays",
 #################################################################################################################
 # 3. train the ML
 #################################################################################################################
-pathOut <- "/home/jovyan/shared-data/Data/Maize/Intermediate/SecondRun"
+pathOut <- "/home/jovyan/shared-data/Data/Maize/Intermediate/grainwt" ## change this to the path you want use to save the trained model, later you will refer to this path touse it for prediction
 if (!dir.exists(pathOut)){
   dir.create(file.path(pathOut), recursive = TRUE)
 }
@@ -158,8 +159,6 @@ ML_gbm <- h2o.gbm(x = predictors,
                   nfolds = 5,
                   seed = 444)
 
-
-pathOut <- "/home/jovyan/shared-data/Data/Maize/Intermediate/grainwt"
 model_path <- h2o.saveModel(object = ML_gbm, path = pathOut, force = TRUE)
 print(model_path)
 # load the model
@@ -177,9 +176,6 @@ rmse_r2_gbm <- data.frame(mae=round(h2o.mae(ML_gbm, train=TRUE, valid=TRUE), 0),
                           rmse = round(h2o.rmse(ML_gbm, train=TRUE, valid=TRUE), 0),
                           R_sq = round(h2o.r2(ML_gbm, train=TRUE, valid=TRUE), 2))
 rmse_r2_gbm
-#        mae rmse R_sq
-# train  74  102 1.00
-# valid 250  454 0.95
 
 h2o.residual_analysis_plot(ML_gbm,test_data)
 
